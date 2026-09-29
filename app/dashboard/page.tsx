@@ -23,6 +23,7 @@ import {
 } from "@/components/dashboard-analytics";
 import { TAG_OPTIONS, isInvestorTag } from "@/lib/tags";
 import { SendTestReminderButton } from "@/components/send-test-reminder-button";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -149,62 +150,110 @@ export default async function DashboardPage() {
   const weekBuckets = getEightWeekBuckets(now);
   const eightWeeksAgoIso = weekBuckets[0].start.toISOString();
 
-  const [
-    contactsResult,
-    followUpsResult,
-    interactionsResult,
-    createdTrendResult,
-    completedTrendResult,
-    allInteractionsResult,
-  ] = await Promise.all([
-    supabase
-      .from("contacts")
-      .select("id, name, tags")
-      .is("deleted_at", null),
-    supabase
-      .from("follow_ups")
-      .select("id, contact_id, due_date, message, is_done, created_at")
-      .eq("is_done", false)
-      .is("deleted_at", null)
-      .order("due_date", { ascending: true }),
-    supabase
-      .from("interactions")
-      .select("id, contact_id, type, note, created_at")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(30),
-    supabase
-      .from("follow_ups")
-      .select("id, created_at")
-      .is("deleted_at", null)
-      .gte("created_at", eightWeeksAgoIso),
-    supabase
-      .from("interactions")
-      .select("id, created_at")
-      .eq("type", "follow_up")
-      .is("deleted_at", null)
-      .gte("created_at", eightWeeksAgoIso),
-    supabase
-      .from("interactions")
-      .select("contact_id, created_at")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-  ]);
+  let contacts: ContactItem[] = [];
+  let pendingFollowUps: FollowUpRecord[] = [];
+  let interactions: InteractionRecord[] = [];
+  let createdTrend: Array<{ id: string; created_at: string }> = [];
+  let completedTrend: Array<{ id: string; created_at: string }> = [];
+  let allInteractions: Array<{ contact_id: string; created_at: string }> = [];
+  let pendingCount = 0;
+  let overdueCount = 0;
+  let recentInteractionsCount = 0;
+  let dashboardError: string | null = null;
 
-  const { data: contacts, error: contactsError } = contactsResult;
-  const { data: pendingFollowUps, error: followUpsError } = followUpsResult;
-  const { data: interactions, error: interactionsError } = interactionsResult;
+  try {
+    [
+      contacts,
+      pendingFollowUps,
+      interactions,
+      createdTrend,
+      completedTrend,
+      allInteractions,
+    ] = await Promise.all([
+      fetchAllPages<ContactItem>((from, to) =>
+        supabase.from("contacts").select("id, name, tags").is("deleted_at", null).range(from, to)
+      ),
+      fetchAllPages<FollowUpRecord>((from, to) =>
+        supabase
+          .from("follow_ups")
+          .select("id, contact_id, due_date, message, is_done, created_at")
+          .eq("is_done", false)
+          .is("deleted_at", null)
+          .order("due_date", { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages<InteractionRecord>((from, to) =>
+        supabase
+          .from("interactions")
+          .select("id, contact_id, type, note, created_at")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .range(from, to)
+      ).then((rows) => rows.slice(0, 30)),
+      fetchAllPages<{ id: string; created_at: string }>((from, to) =>
+        supabase
+          .from("follow_ups")
+          .select("id, created_at")
+          .is("deleted_at", null)
+          .gte("created_at", eightWeeksAgoIso)
+          .range(from, to)
+      ),
+      fetchAllPages<{ id: string; created_at: string }>((from, to) =>
+        supabase
+          .from("interactions")
+          .select("id, created_at")
+          .eq("type", "follow_up")
+          .is("deleted_at", null)
+          .gte("created_at", eightWeeksAgoIso)
+          .range(from, to)
+      ),
+      fetchAllPages<{ contact_id: string; created_at: string }>((from, to) =>
+        supabase
+          .from("interactions")
+          .select("contact_id, created_at")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .range(from, to)
+      ),
+    ]);
 
-  if (contactsError || followUpsError || interactionsError) {
-    const errorMsg =
-      contactsError?.message ||
-      followUpsError?.message ||
-      interactionsError?.message;
+    const [pendingCountResult, overdueCountResult, recentInteractionsCountResult] =
+      await Promise.all([
+        supabase
+          .from("follow_ups")
+          .select("id", { count: "exact", head: true })
+          .eq("is_done", false)
+          .is("deleted_at", null),
+        supabase
+          .from("follow_ups")
+          .select("id", { count: "exact", head: true })
+          .eq("is_done", false)
+          .is("deleted_at", null)
+          .lt("due_date", todayStr),
+        supabase
+          .from("interactions")
+          .select("id", { count: "exact", head: true })
+          .is("deleted_at", null)
+          .gte("created_at", thirtyDaysAgoIso),
+      ]);
+
+    if (pendingCountResult.error) throw new Error(pendingCountResult.error.message);
+    if (overdueCountResult.error) throw new Error(overdueCountResult.error.message);
+    if (recentInteractionsCountResult.error) throw new Error(recentInteractionsCountResult.error.message);
+
+    pendingCount = pendingCountResult.count ?? 0;
+    overdueCount = overdueCountResult.count ?? 0;
+    recentInteractionsCount = recentInteractionsCountResult.count ?? 0;
+  } catch (err) {
+    dashboardError = err instanceof Error ? err.message : "Dashboard data could not be loaded.";
+  }
+
+  if (dashboardError) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="mt-2 text-destructive">
-          Error loading dashboard data: {errorMsg}
+          Error loading dashboard data: {dashboardError}
         </p>
       </div>
     );
@@ -217,7 +266,7 @@ export default async function DashboardPage() {
   >();
 
   let investorCount = 0;
-  for (const contact of (contacts ?? []) as ContactItem[]) {
+  for (const contact of contacts) {
     const isInvestor = Boolean(
       Array.isArray(contact.tags) &&
         contact.tags.some((tag: string) => isInvestorTag(tag))
@@ -232,15 +281,7 @@ export default async function DashboardPage() {
     });
   }
 
-  const totalContacts = contacts?.length ?? 0;
-  const pendingCount = pendingFollowUps?.length ?? 0;
-  const overdueCount = (pendingFollowUps ?? []).filter(
-    (f: FollowUpRecord) => f.due_date && f.due_date < todayStr
-  ).length;
-
-  const recentInteractionsCount = (interactions ?? []).filter(
-    (i: InteractionRecord) => i.created_at >= thirtyDaysAgoIso
-  ).length;
+  const totalContacts = contacts.length;
 
   const summaryCards = [
     {
@@ -281,21 +322,12 @@ export default async function DashboardPage() {
   ];
 
   // Upcoming follow-ups (next 8)
-  const upcomingFollowUps = ((pendingFollowUps ?? []) as FollowUpRecord[]).slice(
-    0,
-    8
-  );
+  const upcomingFollowUps = pendingFollowUps.slice(0, 8);
 
   // Latest interactions (next 8)
-  const latestInteractions = ((interactions ?? []) as InteractionRecord[]).slice(
-    0,
-    8
-  );
+  const latestInteractions = interactions.slice(0, 8);
 
   // --- Analytics: Widget 1: Follow-up Completion Trend ---
-  const createdTrend = createdTrendResult.data ?? [];
-  const completedTrend = completedTrendResult.data ?? [];
-
   for (const item of createdTrend) {
     const time = new Date(item.created_at).getTime();
     for (const b of weekBuckets) {
@@ -328,7 +360,7 @@ export default async function DashboardPage() {
     TAG_OPTIONS.map((tag) => [tag, 0])
   );
 
-  for (const contact of (contacts ?? []) as ContactItem[]) {
+  for (const contact of contacts) {
     if (Array.isArray(contact.tags)) {
       for (const tag of contact.tags) {
         if (typeof tag === "string") {
@@ -352,7 +384,6 @@ export default async function DashboardPage() {
   );
 
   // --- Analytics: Widget 3: Investors Going Quiet ---
-  const allInteractions = allInteractionsResult.data ?? [];
   const latestInteractionByContact = new Map<string, string>();
   for (const item of allInteractions) {
     if (!latestInteractionByContact.has(item.contact_id)) {
@@ -360,9 +391,7 @@ export default async function DashboardPage() {
     }
   }
 
-  const quietInvestors: QuietInvestorItem[] = (
-    (contacts ?? []) as ContactItem[]
-  )
+  const quietInvestors: QuietInvestorItem[] = contacts
     .filter((contact) =>
       Boolean(
         Array.isArray(contact.tags) &&
@@ -647,17 +676,17 @@ export default async function DashboardPage() {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
           {/* Widget 1: Follow-up Completion Trend */}
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
+          <div className="min-w-0 rounded-xl border bg-card p-5 shadow-sm">
             <FollowUpTrendChart data={followUpTrendData} />
           </div>
 
           {/* Widget 2: Tag Distribution */}
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
+          <div className="min-w-0 rounded-xl border bg-card p-5 shadow-sm">
             <TagDistributionChart data={tagDistributionData} />
           </div>
 
           {/* Widget 3: Investors Going Quiet */}
-          <div className="rounded-xl border bg-card p-5 shadow-sm lg:col-span-2 xl:col-span-1">
+          <div className="min-w-0 rounded-xl border bg-card p-5 shadow-sm lg:col-span-2 xl:col-span-1">
             <InvestorsGoingQuietList investors={quietInvestors} />
           </div>
         </div>

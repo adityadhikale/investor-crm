@@ -56,6 +56,7 @@ export type ContactRow = {
   email?: string | null;
   tags: string[] | null;
   date_saved: string | null;
+  notes?: string | null;
   contact_groups:
     | Array<{
         groups:
@@ -84,11 +85,15 @@ function formatDateSaved(dateSaved: string | null) {
 type ContactDetailsDialogProps = {
   contact: ContactRow;
   children: ReactElement;
+  startInEditMode?: boolean;
+  nativeButtonTrigger?: boolean;
 };
 
 export function ContactDetailsDialog({
   contact,
   children,
+  startInEditMode = false,
+  nativeButtonTrigger = false,
 }: ContactDetailsDialogProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -104,6 +109,7 @@ export function ContactDetailsDialog({
   const [email, setEmail] = useState(contact.email ?? "");
   const [tag, setTag] = useState(contact.tags?.[0] ?? "");
   const [dateSaved, setDateSaved] = useState(contact.date_saved ? contact.date_saved.slice(0, 10) : "");
+  const [notes, setNotes] = useState(contact.notes ?? "");
   const [addingTag, setAddingTag] = useState(false);
   const [selectedTagToAdd, setSelectedTagToAdd] = useState("");
   const [addingGroups, setAddingGroups] = useState(false);
@@ -119,11 +125,14 @@ export function ContactDetailsDialog({
     setEmail(contact.email ?? "");
     setTag(contact.tags?.[0] ?? "");
     setDateSaved(contact.date_saved ? contact.date_saved.slice(0, 10) : "");
+    setNotes(contact.notes ?? "");
   }
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) {
+    if (next) {
+      setEditing(startInEditMode);
+    } else {
       setEditing(false);
       setConfirmingDelete(false);
       setError(null);
@@ -231,12 +240,15 @@ export function ContactDetailsDialog({
       return;
     }
 
+    const trimmedNotes = notes.trim();
+
     const formData = new FormData();
     formData.set("name", trimmedName);
     formData.set("phone", trimmedPhone);
     formData.set("email", trimmedEmail ? trimmedEmail.toLowerCase() : "");
     formData.set("tags", JSON.stringify(tag.trim() ? [tag.trim()] : []));
     formData.set("dateSaved", dateSaved);
+    formData.set("notes", trimmedNotes);
 
     setSaving(true);
     const result = await updateContact(currentContact.id, formData);
@@ -254,6 +266,7 @@ export function ContactDetailsDialog({
       email: trimmedEmail ? trimmedEmail.toLowerCase() : null,
       tags: tag.trim() ? [tag.trim()] : [],
       date_saved: dateSaved || null,
+      notes: trimmedNotes || null,
     });
     setEditing(false);
     router.refresh();
@@ -281,7 +294,7 @@ export function ContactDetailsDialog({
   return (
     <>
       <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetTrigger nativeButton={false} render={children} />
+        <SheetTrigger nativeButton={nativeButtonTrigger} render={children} />
         <SheetContent side="right" className="flex flex-col gap-0">
           <SheetHeader className="border-b px-4 py-3.5 sm:px-6 sm:py-5">
             <SheetTitle className="text-lg sm:text-xl">
@@ -358,6 +371,18 @@ export function ContactDetailsDialog({
                     setDateSaved(date ? toISODateString(date) : "")
                   }
                 />
+
+                <div className="flex flex-col gap-1.5 sm:gap-2">
+                  <Label htmlFor={`edit-notes-${currentContact.id}`}>Notes</Label>
+                  <textarea
+                    id={`edit-notes-${currentContact.id}`}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="e.g. Company: Acme Capital · Designation: CFO · Sector: Fintech"
+                    rows={4}
+                    className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-20 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  />
+                </div>
 
                 {error && (
                   <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -519,6 +544,31 @@ export function ContactDetailsDialog({
                         </div>
                       ) : <span className="text-sm text-muted-foreground">Not in any group</span>}
                     </div>
+                  </div>
+                </div>
+
+                {/* Notes: company name, designation, sector, etc. */}
+                <div className="rounded-lg border bg-background p-4 sm:p-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={beginEdit}
+                      aria-label="Edit notes"
+                    >
+                      <Pencil className="size-3.5" />
+                    </Button>
+                  </div>
+                  <div className="mt-2">
+                    {currentContact.notes?.trim() ? (
+                      <p className="whitespace-pre-wrap text-sm">{currentContact.notes}</p>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        No notes yet — e.g. company name, designation, sector
+                      </span>
+                    )}
                   </div>
                 </div>
 

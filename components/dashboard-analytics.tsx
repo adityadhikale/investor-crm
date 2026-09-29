@@ -219,7 +219,7 @@ export function TagDistributionChart({ data }: { data: TagDistributionPoint[] })
             No contacts tagged with standard categories.
           </div>
         ) : (
-          <div className="flex h-60 flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex min-h-60 flex-col sm:flex-row xl:flex-col items-center justify-between gap-4">
             <div className="h-48 w-48 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>

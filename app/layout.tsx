@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import localFont from "next/font/local";
 import { AppSidebar } from "@/components/app-sidebar";
 import { TopNav } from "@/components/top-nav";
 import { ToastProvider } from "@/components/toast-provider";
@@ -22,6 +23,12 @@ const playfair = Playfair_Display({
   subsets: ["latin"],
 });
 
+const maharlika = localFont({
+  src: "../public/fonts/Maharlika-Regular.ttf",
+  variable: "--font-maharlika",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "CREST CRM",
@@ -34,7 +41,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} ${maharlika.variable} h-full antialiased`}
     >
       <body className="flex h-full flex-col">
         <ToastProvider>

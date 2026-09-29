@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, Users, Folder, TrendingUp, Megaphone, FileText } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  Folder,
+  TrendingUp,
+  Megaphone,
+  FileText,
+  Tag as TagIcon,
+  ChevronDown,
+} from "lucide-react";
 import { useSidebar } from "@/components/sidebar-provider";
+import { TAG_OPTIONS, INVESTOR_TAG } from "@/lib/tags";
 import {
   Sheet,
   SheetContent,
@@ -23,9 +33,16 @@ const navItems = [
   { href: "/templates", label: "Templates", icon: FileText },
 ];
 
+function tagHref(tag: string) {
+  return tag === INVESTOR_TAG
+    ? "/investors"
+    : `/contacts?tags=${encodeURIComponent(tag)}`;
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const { isOpen, setIsOpen, close } = useSidebar();
+  const [tagsOpen, setTagsOpen] = useState(false);
 
   useEffect(() => {
     close();
@@ -67,13 +84,52 @@ export function AppSidebar() {
           </Link>
         );
       })}
+
+      <button
+        type="button"
+        onClick={() => setTagsOpen((prev) => !prev)}
+        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      >
+        <TagIcon className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1 text-left">Tags</span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 transition-transform",
+            tagsOpen && "rotate-180"
+          )}
+        />
+      </button>
+
+      {tagsOpen && (
+        <div className="ml-3 flex flex-col gap-1 border-l pl-3">
+          {TAG_OPTIONS.map((tag) => {
+            const isActive =
+              tag === INVESTOR_TAG && pathname === "/investors";
+            return (
+              <Link
+                key={tag}
+                href={tagHref(tag)}
+                onClick={isMobile ? close : undefined}
+                className={cn(
+                  "truncate rounded-md px-3 py-1.5 text-sm transition-colors",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                )}
+              >
+                {tag}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </nav>
   );
 
   return (
     <>
       {/* Desktop Persistent Sidebar (1024px and above) */}
-      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r bg-card p-4">
+      <aside className="hidden lg:flex w-64 shrink-0 flex-col overflow-y-auto border-r bg-card p-4">
         <div className="mb-4 text-lg font-semibold font-heading">Investor CRM</div>
         {renderNavLinks(false)}
         <div className="flex-1" />
@@ -81,7 +137,7 @@ export function AppSidebar() {
 
       {/* Tablet & Mobile Drawer (below 1024px) */}
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
-        <SheetContent side="left" className="flex w-72 flex-col p-4">
+        <SheetContent side="left" className="flex w-72 flex-col overflow-y-auto p-4">
           <SheetHeader className="p-0 text-left">
             <SheetTitle className="text-lg font-semibold font-heading">Investor CRM</SheetTitle>
             <SheetDescription className="sr-only">Main navigation menu</SheetDescription>

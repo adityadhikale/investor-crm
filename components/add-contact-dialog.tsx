@@ -55,6 +55,7 @@ export function AddContactDialog() {
 
   const [dateSaved, setDateSaved] = useState<Date | undefined>(undefined);
   const [dateError, setDateError] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
 
   function resetForm() {
     setName("");
@@ -66,6 +67,7 @@ export function AddContactDialog() {
     setSelectedTag("");
     setDateSaved(undefined);
     setDateError(null);
+    setNotes("");
     setError(null);
   }
 
@@ -118,6 +120,7 @@ export function AddContactDialog() {
       "dateSaved",
       dateSaved ? toISODateString(dateSaved) : ""
     );
+    formData.set("notes", notes.trim());
 
     setSubmitting(true);
 
@@ -254,6 +257,20 @@ export function AddContactDialog() {
               onChange={setDateSaved}
               error={dateError}
             />
+
+            {/* Notes (Optional) */}
+            <div className="flex flex-col gap-1.5 sm:gap-2">
+              <Label htmlFor="notes">Notes</Label>
+              <textarea
+                id="notes"
+                name="notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Company: Acme Capital · Designation: CFO · Sector: Fintech"
+                rows={4}
+                className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-20 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              />
+            </div>
 
             {error && (
               <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">

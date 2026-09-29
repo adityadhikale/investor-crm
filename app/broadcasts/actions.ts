@@ -8,6 +8,7 @@ import {
   normalizePhoneForWhatsApp,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 
 export type TargetType = "group" | "tag" | "manual";
 
@@ -655,57 +656,59 @@ async function dispatchBroadcast(
   // 3. Resolve target contacts (with email for personalization)
   let targetContacts: Array<{ id: string; name: string; phone: string; email?: string | null }> = [];
 
-  if (broadcast.target_type === "manual") {
-    const { data: contacts, error: contactsError } = await supabase
-      .from("contacts")
-      .select("id, name, phone, email")
-      .in("id", broadcast.target_ids)
-      .is("deleted_at", null);
+  try {
+    if (broadcast.target_type === "manual") {
+      targetContacts = await fetchAllPages<{ id: string; name: string; phone: string; email?: string | null }>(
+        (from, to) =>
+          supabase
+            .from("contacts")
+            .select("id, name, phone, email")
+            .in("id", broadcast.target_ids)
+            .is("deleted_at", null)
+            .range(from, to)
+      );
+    } else if (broadcast.target_type === "group") {
+      const relations = await fetchAllPages<{ contact_id: string; contacts: unknown }>(
+        (from, to) =>
+          supabase
+            .from("contact_groups")
+            .select("contact_id, contacts(id, name, phone, email, deleted_at)")
+            .in("group_id", broadcast.target_ids)
+            .range(from, to)
+      );
 
-    if (contactsError) {
-      return { error: "Failed to resolve manual contacts." };
-    }
-    targetContacts = contacts ?? [];
-  } else if (broadcast.target_type === "group") {
-    const { data: relations, error: groupError } = await supabase
-      .from("contact_groups")
-      .select("contact_id, contacts(id, name, phone, email, deleted_at)")
-      .in("group_id", broadcast.target_ids);
-
-    if (groupError) {
-      return { error: "Failed to resolve group contacts." };
-    }
-
-    const contactMap = new Map<string, { id: string; name: string; phone: string; email?: string | null }>();
-    for (const rel of relations ?? []) {
-      const c = rel.contacts as unknown as {
-        id: string;
-        name: string;
-        phone: string;
-        email?: string | null;
-        deleted_at: string | null;
-      } | null;
-      if (c && !c.deleted_at && !contactMap.has(c.id)) {
-        contactMap.set(c.id, {
-          id: c.id,
-          name: c.name,
-          phone: c.phone,
-          email: c.email ?? null,
-        });
+      const contactMap = new Map<string, { id: string; name: string; phone: string; email?: string | null }>();
+      for (const rel of relations) {
+        const c = rel.contacts as unknown as {
+          id: string;
+          name: string;
+          phone: string;
+          email?: string | null;
+          deleted_at: string | null;
+        } | null;
+        if (c && !c.deleted_at && !contactMap.has(c.id)) {
+          contactMap.set(c.id, {
+            id: c.id,
+            name: c.name,
+            phone: c.phone,
+            email: c.email ?? null,
+          });
+        }
       }
+      targetContacts = Array.from(contactMap.values());
+    } else if (broadcast.target_type === "tag") {
+      targetContacts = await fetchAllPages<{ id: string; name: string; phone: string; email?: string | null }>(
+        (from, to) =>
+          supabase
+            .from("contacts")
+            .select("id, name, phone, email")
+            .overlaps("tags", broadcast.target_ids)
+            .is("deleted_at", null)
+            .range(from, to)
+      );
     }
-    targetContacts = Array.from(contactMap.values());
-  } else if (broadcast.target_type === "tag") {
-    const { data: contacts, error: tagError } = await supabase
-      .from("contacts")
-      .select("id, name, phone, email")
-      .overlaps("tags", broadcast.target_ids)
-      .is("deleted_at", null);
-
-    if (tagError) {
-      return { error: "Failed to resolve tagged contacts." };
-    }
-    targetContacts = contacts ?? [];
+  } catch {
+    return { error: "Failed to resolve recipient contacts." };
   }
 
   if (targetContacts.length === 0) {

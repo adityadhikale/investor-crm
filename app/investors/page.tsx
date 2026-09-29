@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { requireAuth } from "@/lib/auth";
 import { LiveSearchInput } from "@/components/live-search-input";
+import type { ContactRow } from "@/components/contact-details-dialog";
 import {
   InvestorTrackingTable,
   type InvestorTrackingRow,
 } from "@/components/investor-tracking-table";
 import { INVESTOR_TAG } from "@/lib/tags";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 
 export const metadata: Metadata = {
   title: "Investors",
@@ -30,87 +32,87 @@ export default async function InvestorsPage({
 
   const { supabase } = await requireAuth();
 
-  let contactsQuery = supabase
-    .from("contacts")
-    .select("id, name, phone, email, tags, date_saved, contact_groups(groups(id, name))")
-    .contains("tags", [INVESTOR_TAG])
-    .is("deleted_at", null);
+  let contacts: ContactRow[] = [];
+  let interactions: InteractionRow[] = [];
+  let followUps: FollowUpRow[] = [];
+  let loadError: string | null = null;
 
-  if (search) {
-    contactsQuery = contactsQuery.or(
-      `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-    );
-  }
+  try {
+    contacts = await fetchAllPages<ContactRow>((from, to) => {
+      let query = supabase
+        .from("contacts")
+        .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
+        .contains("tags", [INVESTOR_TAG])
+        .is("deleted_at", null);
 
-  const { data: contacts, error: contactsError } = await contactsQuery.order("name", {
-    ascending: true,
-  });
+      if (search) {
+        query = query.or(
+          `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
+        );
+      }
 
-  if (contactsError) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-8">
-        <h1 className="text-2xl font-semibold">Investors</h1>
-        <p className="mt-2 text-destructive">
-          Error loading investors: {contactsError.message}
-        </p>
-      </div>
-    );
-  }
+      return query.order("name", { ascending: true }).range(from, to);
+    });
 
-  const contactIds = (contacts ?? []).map((contact) => contact.id);
-  const [{ data: interactions, error: interactionsError }, { data: followUps, error: followUpsError }] =
-    contactIds.length
-      ? await Promise.all([
+    const contactIds = contacts.map((contact) => contact.id);
+
+    if (contactIds.length) {
+      [interactions, followUps] = await Promise.all([
+        fetchAllPages<InteractionRow>((from, to) =>
           supabase
             .from("interactions")
             .select("contact_id, created_at")
             .in("contact_id", contactIds)
             .is("deleted_at", null)
-            .order("created_at", { ascending: false }),
+            .order("created_at", { ascending: false })
+            .range(from, to)
+        ),
+        fetchAllPages<FollowUpRow>((from, to) =>
           supabase
             .from("follow_ups")
             .select("contact_id, due_date")
             .in("contact_id", contactIds)
             .eq("is_done", false)
             .is("deleted_at", null)
-            .order("due_date", { ascending: true }),
-        ])
-      : [
-          { data: [], error: null },
-          { data: [], error: null },
-        ];
+            .order("due_date", { ascending: true })
+            .range(from, to)
+        ),
+      ]);
+    }
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : "Investor tracking data could not be loaded.";
+  }
 
-  if (interactionsError || followUpsError) {
-    const error = interactionsError || followUpsError;
+  if (loadError) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <h1 className="text-2xl font-semibold">Investors</h1>
         <p className="mt-2 text-destructive">
-          Error loading investor tracking: {error?.message}
+          Error loading investors: {loadError}
         </p>
       </div>
     );
   }
 
   const latestInteractionByContact = new Map<string, InteractionRow>();
-  for (const interaction of (interactions ?? []) as InteractionRow[]) {
+  for (const interaction of interactions) {
     if (!latestInteractionByContact.has(interaction.contact_id)) {
       latestInteractionByContact.set(interaction.contact_id, interaction);
     }
   }
 
   const nextFollowUpByContact = new Map<string, FollowUpRow>();
-  for (const followUp of (followUps ?? []) as FollowUpRow[]) {
+  for (const followUp of followUps) {
     if (!nextFollowUpByContact.has(followUp.contact_id)) {
       nextFollowUpByContact.set(followUp.contact_id, followUp);
     }
   }
 
-  const rows = (contacts ?? []).map((contact) => ({
+  const rows: InvestorTrackingRow[] = contacts.map((contact) => ({
     ...contact,
     lastInteraction: latestInteractionByContact.get(contact.id)?.created_at ?? null,
     nextFollowUp: nextFollowUpByContact.get(contact.id)?.due_date ?? null,
-  })) as InvestorTrackingRow[];
+  }));
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">

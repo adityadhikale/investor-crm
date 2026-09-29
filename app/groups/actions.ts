@@ -7,6 +7,7 @@ import {
   normalizeGroupMembers,
   type GroupContactRelation,
 } from "@/lib/group-members";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 
 function validateName(value: string) {
   const name = value.trim();
@@ -246,24 +247,27 @@ export async function getGroupContactOptions(groupId: string, search = "") {
 
   if (membershipError) return { error: "Contacts could not be loaded." };
 
-  let contactsQuery = supabase.from("contacts").select("id, name, phone").is("deleted_at", null);
   const trimmedSearch = search.trim();
-  if (trimmedSearch) {
-    contactsQuery = contactsQuery.or(
-      `name.ilike.%${trimmedSearch}%,phone.ilike.%${trimmedSearch}%`,
-    );
+
+  let contacts: GroupContactOption[];
+  try {
+    contacts = await fetchAllPages<GroupContactOption>((from, to) => {
+      let query = supabase.from("contacts").select("id, name, phone").is("deleted_at", null);
+      if (trimmedSearch) {
+        query = query.or(
+          `name.ilike.%${trimmedSearch}%,phone.ilike.%${trimmedSearch}%`,
+        );
+      }
+      return query.order("name", { ascending: true }).range(from, to);
+    });
+  } catch {
+    return { error: "Contacts could not be loaded." };
   }
-
-  const { data: contacts, error: contactsError } = await contactsQuery
-    .order("name", { ascending: true })
-    .limit(1000);
-
-  if (contactsError) return { error: "Contacts could not be loaded." };
 
   const memberIds = new Set((memberships ?? []).map((membership) => membership.contact_id));
   return {
-    contacts: (contacts ?? []).filter((contact) => !memberIds.has(contact.id)) as GroupContactOption[],
-    totalContacts: contacts?.length ?? 0,
+    contacts: contacts.filter((contact) => !memberIds.has(contact.id)),
+    totalContacts: contacts.length,
   };
 }
 

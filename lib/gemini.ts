@@ -31,6 +31,74 @@ interface GeminiApiResponse {
   };
 }
 
+// Transient errors Gemini surfaces when a model is overloaded or rate-limited.
+// These are worth a short retry — and, if the primary model stays
+// overloaded, falling back to a lighter model — instead of failing outright.
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 503]);
+const MAX_RETRIES_PER_MODEL = 1;
+const RETRY_BASE_DELAY_MS = 600;
+
+// gemini-3.6-flash is our preferred model, but it's a "thinking" model that
+// runs low on capacity during demand spikes. gemini-flash-lite-latest is a
+// lighter model that stays available, used as a fallback so the feature
+// still works (with a slightly less polished result) instead of erroring.
+const MODEL_FALLBACK_CHAIN = ["gemini-3.6-flash", "gemini-flash-lite-latest"];
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function geminiUrl(model: string) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
+
+/**
+ * POSTs to a Gemini generateContent endpoint, retrying with backoff on
+ * transient errors (model overloaded / rate limited), then falling back to
+ * a lighter model if the preferred one stays unavailable.
+ */
+async function callGeminiGenerateContent(
+  apiKey: string,
+  body: unknown
+): Promise<GeminiApiResponse> {
+  let lastErrorMessage = "Gemini API request failed.";
+
+  for (const model of MODEL_FALLBACK_CHAIN) {
+    for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
+      const response = await fetch(geminiUrl(model), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data: GeminiApiResponse = await response.json();
+
+      if (response.ok && !data.error) {
+        return data;
+      }
+
+      const statusCode = data.error?.code ?? response.status;
+      lastErrorMessage =
+        data.error?.message ||
+        `Gemini API responded with HTTP status ${response.status}`;
+
+      const isRetryable = RETRYABLE_STATUS_CODES.has(statusCode);
+      if (!isRetryable) {
+        throw new Error(lastErrorMessage);
+      }
+
+      if (attempt < MAX_RETRIES_PER_MODEL) {
+        await sleep(RETRY_BASE_DELAY_MS * 2 ** attempt);
+      }
+    }
+  }
+
+  throw new Error(lastErrorMessage);
+}
+
 /**
  * Generates an AI summary of a contact's WhatsApp conversation history using Gemini 3.6 Flash.
  * Produces a concise, scannable summary in at most 2 short sentences (under 40 words total)
@@ -78,35 +146,17 @@ ${formattedHistory}
 
 Summary:`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
-    }),
+  const data = await callGeminiGenerateContent(apiKey, {
+    contents: [
+      {
+        parts: [
+          {
+            text: prompt,
+          },
+        ],
+      },
+    ],
   });
-
-  const data: GeminiApiResponse = await response.json();
-
-  if (!response.ok || data.error) {
-    const errMsg =
-      data.error?.message ||
-      `Gemini API responded with HTTP status ${response.status}`;
-    throw new Error(errMsg);
-  }
 
   const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
@@ -190,28 +240,10 @@ or
 
 The due_date must be a real calendar date on or after ${todayIsoDate}, in YYYY-MM-DD format.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json" },
-    }),
+  const data = await callGeminiGenerateContent(apiKey, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json" },
   });
-
-  const data: GeminiApiResponse = await response.json();
-
-  if (!response.ok || data.error) {
-    const errMsg =
-      data.error?.message ||
-      `Gemini API responded with HTTP status ${response.status}`;
-    throw new Error(errMsg);
-  }
 
   const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!generatedText || !generatedText.trim()) {
@@ -272,39 +304,21 @@ export async function transcribeVoiceNoteToMeetingNote(
 
 Write a clear, well-organized note in plain prose (a few sentences to a short paragraph) capturing what was discussed, any decisions made, and any commitments or next steps. Do not include filler, timestamps, or speaker labels — just the substance, as a colleague would write it up afterward. If the audio is silent, unintelligible, or unrelated to a business conversation, say so plainly instead of inventing content.`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: audioBuffer.toString("base64"),
-              },
+  const data = await callGeminiGenerateContent(apiKey, {
+    contents: [
+      {
+        parts: [
+          { text: prompt },
+          {
+            inline_data: {
+              mime_type: mimeType,
+              data: audioBuffer.toString("base64"),
             },
-          ],
-        },
-      ],
-    }),
+          },
+        ],
+      },
+    ],
   });
-
-  const data: GeminiApiResponse = await response.json();
-
-  if (!response.ok || data.error) {
-    const errMsg =
-      data.error?.message ||
-      `Gemini API responded with HTTP status ${response.status}`;
-    throw new Error(errMsg);
-  }
 
   const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!generatedText || !generatedText.trim()) {

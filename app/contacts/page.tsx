@@ -7,6 +7,7 @@ import { ImportContactsDialog } from "@/components/import-contacts-dialog";
 import { LiveSearchInput } from "@/components/live-search-input";
 import { TagFilter } from "@/components/tag-filter";
 import { isInvestorTag } from "@/lib/tags";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 
 export const metadata: Metadata = {
   title: "Contacts",
@@ -26,53 +27,65 @@ export default async function ContactsPage({
 
   const { supabase } = await requireAuth();
 
-  let contactsQuery = supabase
-    .from("contacts")
-    .select(
-      "id, name, phone, email, tags, date_saved, contact_groups(groups(id, name))"
-    )
-    .is("deleted_at", null);
+  function buildContactsQuery() {
+    let query = supabase
+      .from("contacts")
+      .select(
+        "id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))"
+      )
+      .is("deleted_at", null);
 
-  if (search) {
-    contactsQuery = contactsQuery.or(
-      `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-    );
+    if (search) {
+      query = query.or(
+        `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
+      );
+    }
+
+    if (selectedTags.length > 0) {
+      query = query.overlaps("tags", selectedTags);
+    }
+
+    return query;
   }
 
-  if (selectedTags.length > 0) {
-    contactsQuery = contactsQuery.overlaps("tags", selectedTags);
+  let contacts: ContactRow[] = [];
+  let contactMetrics: Array<{ tags: string[] | null }> = [];
+  let groups: Array<{ id: string }> = [];
+  let loadError: string | null = null;
+
+  try {
+    [contacts, contactMetrics, groups] = await Promise.all([
+      fetchAllPages<ContactRow>((from, to) =>
+        buildContactsQuery().order("date_saved", { ascending: false }).range(from, to)
+      ),
+      fetchAllPages<{ tags: string[] | null }>((from, to) =>
+        supabase.from("contacts").select("tags").is("deleted_at", null).range(from, to)
+      ),
+      fetchAllPages<{ id: string }>((from, to) =>
+        supabase.from("groups").select("id").range(from, to)
+      ),
+    ]);
+  } catch (err) {
+    loadError = err instanceof Error ? err.message : "Contacts could not be loaded.";
   }
 
-  const [contactsResult, contactMetricsResult, groupsResult] = await Promise.all([
-    contactsQuery.order("date_saved", { ascending: false }),
-    supabase.from("contacts").select("tags").is("deleted_at", null),
-    supabase.from("groups").select("id"),
-  ]);
-
-  const { data: contacts, error } = contactsResult;
-  const { data: contactMetrics, error: contactMetricsError } =
-    contactMetricsResult;
-  const { data: groups, error: groupsError } = groupsResult;
-
-  if (error || contactMetricsError || groupsError) {
+  if (loadError) {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <h1 className="text-2xl font-semibold">Contacts</h1>
         <p className="mt-2 text-destructive">
-          Error loading contacts: {(error || contactMetricsError || groupsError)?.message}
+          Error loading contacts: {loadError}
         </p>
       </div>
     );
   }
 
-  const totalContacts = contactMetrics?.length ?? 0;
-  const investors =
-    contactMetrics?.filter((contact) =>
-      contact.tags?.some((tag: string) => isInvestorTag(tag))
-    ).length ?? 0;
-  const taggedContacts =
-    contactMetrics?.filter((contact) => contact.tags?.length).length ?? 0;
-  const totalGroups = groups?.length ?? 0;
+  const totalContacts = contactMetrics.length;
+  const investors = contactMetrics.filter((contact) =>
+    contact.tags?.some((tag: string) => isInvestorTag(tag))
+  ).length;
+  const taggedContacts = contactMetrics.filter((contact) => contact.tags?.length).length;
+  const totalGroups = groups.length;
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
@@ -127,7 +140,7 @@ export default async function ContactsPage({
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
         <ContactsTable
           key={`${search}-${tagsParam}`}
-          contacts={(contacts ?? []) as ContactRow[]}
+          contacts={contacts}
           search={search}
         />
       </div>

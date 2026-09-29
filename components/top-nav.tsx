@@ -64,7 +64,7 @@ export function TopNav() {
         </button>
         <span
           className="text-3xl text-foreground tracking-wide select-none"
-          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", fontWeight: 400 }}
+          style={{ fontFamily: "var(--font-maharlika), var(--font-playfair), 'Playfair Display', Georgia, serif", fontWeight: 400 }}
         >
           CREST
         </span>

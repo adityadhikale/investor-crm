@@ -12,12 +12,33 @@ import {
 } from "@/lib/whatsapp";
 import { uploadWhatsAppMediaToStorage } from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
+import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
+import { fetchAllPages } from "@/lib/supabase-pagination";
+
+const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
 
 const DUPLICATE_PHONE_ERROR =
   "This phone number is already associated with another contact.";
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
+}
+
+async function fetchAllContactPhones(
+  supabase: Awaited<ReturnType<typeof requireActionAuth>>["supabase"],
+  options: { excludeId?: string; excludeDeleted?: boolean } = {}
+): Promise<string[]> {
+  if (!supabase) return [];
+  const { excludeId, excludeDeleted = true } = options;
+
+  const rows = await fetchAllPages<{ phone: string }>((from, to) => {
+    let query = supabase.from("contacts").select("phone").range(from, to);
+    if (excludeDeleted) query = query.is("deleted_at", null);
+    if (excludeId) query = query.neq("id", excludeId);
+    return query;
+  });
+
+  return rows.map((row) => String(row.phone));
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,6 +56,7 @@ export async function addContact(formData: FormData) {
   const emailRaw = String(formData.get("email") ?? "").trim();
   const tagsRaw = formData.get("tags") as string;
   const dateSaved = formData.get("dateSaved") as string;
+  const notes = String(formData.get("notes") ?? "").trim();
 
   let tags: string[] = [];
   try {
@@ -63,21 +85,14 @@ export async function addContact(formData: FormData) {
     return { error: "Date must use a valid YYYY-MM-DD date." };
   }
 
-  const { data: existingContacts, error: lookupError } = await supabase
-    .from("contacts")
-    .select("phone")
-    .is("deleted_at", null)
-    .limit(10000);
-
-  if (lookupError) {
+  let existingPhones: string[];
+  try {
+    existingPhones = await fetchAllContactPhones(supabase);
+  } catch {
     return { error: "The contact could not be checked for duplicates." };
   }
 
-  if (
-    existingContacts?.some(
-      (contact) => normalizePhone(String(contact.phone)) === phone
-    )
-  ) {
+  if (existingPhones.some((existingPhone) => normalizePhone(existingPhone) === phone)) {
     return { error: DUPLICATE_PHONE_ERROR };
   }
 
@@ -89,6 +104,7 @@ export async function addContact(formData: FormData) {
       email: normalizedEmail,
       tags,
       date_saved: dateSaved || null,
+      notes: notes || null,
     });
 
   if (error) {
@@ -108,6 +124,7 @@ export async function updateContact(id: string, formData: FormData) {
   const emailRaw = String(formData.get("email") ?? "").trim();
   const tagsRaw = String(formData.get("tags") ?? "");
   const dateSaved = String(formData.get("dateSaved") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
 
   let tags: string[] = [];
   try {
@@ -156,22 +173,14 @@ export async function updateContact(id: string, formData: FormData) {
     return { error: DUPLICATE_PHONE_ERROR };
   }
 
-  const { data: otherContacts, error: normalizedLookupError } = await supabase
-    .from("contacts")
-    .select("id, phone")
-    .neq("id", id)
-    .is("deleted_at", null)
-    .limit(10000);
-
-  if (normalizedLookupError) {
+  let otherPhones: string[];
+  try {
+    otherPhones = await fetchAllContactPhones(supabase, { excludeId: id });
+  } catch {
     return { error: "The contact could not be checked for duplicates." };
   }
 
-  if (
-    otherContacts?.some(
-      (contact) => normalizePhone(String(contact.phone)) === phone
-    )
-  ) {
+  if (otherPhones.some((otherPhone) => normalizePhone(otherPhone) === phone)) {
     return { error: DUPLICATE_PHONE_ERROR };
   }
 
@@ -183,6 +192,7 @@ export async function updateContact(id: string, formData: FormData) {
       email: normalizedEmail,
       tags,
       date_saved: dateSaved || null,
+      notes: notes || null,
     })
     .eq("id", id);
 
@@ -738,6 +748,7 @@ export type ImportContactRow = {
   email?: string | null;
   tag: string;
   dateSaved: string;
+  notes: string;
 };
 
 function isValidDate(value: string) {
@@ -771,7 +782,29 @@ function validateImportRow(row: ImportContactRow) {
   return null;
 }
 
-export async function importContacts(rowsRaw: string) {
+export type ImportDuplicateRow = {
+  name: string;
+  phone: string;
+  email: string | null;
+  reason: string;
+};
+
+export type ImportContactsResult =
+  | {
+      success: true;
+      imported: number;
+      duplicates: number;
+      rejected: number;
+      duplicateRows: ImportDuplicateRow[];
+    }
+  | { error: string };
+
+// Insert in batches rather than one giant array so a single failure only
+// stops the rows after it (already-inserted batches stay committed) and so
+// we can report exactly how far an import got if something does fail.
+const IMPORT_INSERT_BATCH_SIZE = 300;
+
+export async function importContacts(rowsRaw: string): Promise<ImportContactsResult> {
   const { supabase, error: authError } = await requireActionAuth();
   if (authError || !supabase) return { error: "Unauthorized" };
 
@@ -791,6 +824,7 @@ export async function importContacts(rowsRaw: string) {
         email: emailRaw || null,
         tag: String(rowObj.tag ?? "").trim(),
         dateSaved: String(rowObj.dateSaved ?? "").trim(),
+        notes: String(rowObj.notes ?? "").trim(),
       };
     });
   } catch {
@@ -804,45 +838,65 @@ export async function importContacts(rowsRaw: string) {
   const validRows = rows.filter((row) => !validateImportRow(row));
   const rejected = rows.length - validRows.length;
 
-  const { data: existingContacts, error: lookupError } = await supabase
-    .from("contacts")
-    .select("phone")
-    .limit(10000);
-
-  if (lookupError) {
+  let existingPhonesList: string[];
+  try {
+    // Matches the original behavior of this lookup: existing AND
+    // soft-deleted contacts both count as "already taken" phone numbers.
+    existingPhonesList = await fetchAllContactPhones(supabase, { excludeDeleted: false });
+  } catch {
     return { error: "Contacts could not be checked for duplicates." };
   }
 
-  const existingPhones = new Set(
-    (existingContacts ?? []).map((contact) =>
-      normalizePhone(String(contact.phone))
-    )
-  );
-  const seenPhones = new Set<string>();
-  const rowsToInsert = validRows.filter((row) => {
+  const existingPhones = new Set(existingPhonesList.map((phone) => normalizePhone(phone)));
+  const seenPhones = new Map<string, string>();
+  const rowsToInsert: ImportContactRow[] = [];
+  const duplicateRows: ImportDuplicateRow[] = [];
+
+  for (const row of validRows) {
     const normalizedPhone = normalizePhone(row.phone);
-    if (existingPhones.has(normalizedPhone) || seenPhones.has(normalizedPhone)) {
-      return false;
-    }
-    seenPhones.add(normalizedPhone);
-    return true;
-  });
 
-  const duplicates = validRows.length - rowsToInsert.length;
-
-  if (rowsToInsert.length) {
-    const { error: insertError } = await supabase.from("contacts").insert(
-      rowsToInsert.map((row) => ({
+    if (existingPhones.has(normalizedPhone)) {
+      duplicateRows.push({
         name: row.name,
-        phone: normalizePhone(row.phone),
-        email: row.email ? row.email.toLowerCase() : null,
-        tags: row.tag ? [row.tag] : [],
-        date_saved: row.dateSaved || null,
-      }))
-    );
+        phone: row.phone,
+        email: row.email ?? null,
+        reason: "Phone already exists in the CRM",
+      });
+      continue;
+    }
+
+    const firstSeenName = seenPhones.get(normalizedPhone);
+    if (firstSeenName) {
+      duplicateRows.push({
+        name: row.name,
+        phone: row.phone,
+        email: row.email ?? null,
+        reason: `Duplicate phone number within this file (same as "${firstSeenName}")`,
+      });
+      continue;
+    }
+
+    seenPhones.set(normalizedPhone, row.name);
+    rowsToInsert.push(row);
+  }
+
+  for (let i = 0; i < rowsToInsert.length; i += IMPORT_INSERT_BATCH_SIZE) {
+    const batch = rowsToInsert.slice(i, i + IMPORT_INSERT_BATCH_SIZE).map((row) => ({
+      name: row.name,
+      phone: normalizePhone(row.phone),
+      email: row.email ? row.email.toLowerCase() : null,
+      tags: row.tag ? [row.tag] : [],
+      date_saved: row.dateSaved || null,
+      notes: row.notes || null,
+    }));
+
+    const { error: insertError } = await supabase.from("contacts").insert(batch);
 
     if (insertError) {
-      return { error: "Contacts could not be imported." };
+      revalidatePath("/contacts");
+      return {
+        error: `Import stopped after ${i} of ${rowsToInsert.length} new contacts (${insertError.message}). The ${i} contacts already inserted were saved — fix the issue and re-import the rest.`,
+      };
     }
   }
 
@@ -850,9 +904,36 @@ export async function importContacts(rowsRaw: string) {
   return {
     success: true,
     imported: rowsToInsert.length,
-    duplicates,
+    duplicates: duplicateRows.length,
     rejected,
+    duplicateRows,
   };
+}
+
+export type ParseExcelFileResult = ParsedSpreadsheet | { error: string };
+
+/**
+ * Parses an uploaded Excel (.xlsx/.xls) file into the same
+ * { headers, rows } shape the client already uses for CSV, so it can reuse
+ * the existing column-mapping and validation UI.
+ */
+export async function parseExcelFile(file: File): Promise<ParseExcelFileResult> {
+  const { error: authError } = await requireActionAuth();
+  if (authError) return { error: "Unauthorized" };
+
+  if (!file || file.size === 0) return { error: "No file selected." };
+  if (file.size > MAX_IMPORT_FILE_BYTES) {
+    return { error: "File is too large. Please choose a file under 15MB." };
+  }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    return await parseExcelBuffer(buffer);
+  } catch (err: unknown) {
+    return {
+      error: err instanceof Error ? err.message : "The Excel file could not be read.",
+    };
+  }
 }
 
 export type GenerateWhatsAppSummaryResult =

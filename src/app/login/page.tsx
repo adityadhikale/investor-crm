@@ -44,7 +44,7 @@ export default function LoginPage() {
             <span
               className="text-5xl sm:text-6xl tracking-wide text-foreground"
               style={{
-                fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif",
+                fontFamily: "var(--font-maharlika), var(--font-playfair), 'Playfair Display', Georgia, serif",
                 fontWeight: 400,
               }}
             >

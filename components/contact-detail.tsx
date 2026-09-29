@@ -48,22 +48,18 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Sparkles } from "lucide-react";
+import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
 import {
   WhatsAppHistory,
   type WhatsAppMessage,
 } from "@/components/whatsapp-history";
-
-type Contact = {
-  id: string;
-  name: string;
-  phone: string;
-  email?: string | null;
-  tags: string[] | null;
-};
+import {
+  ContactDetailsDialog,
+  type ContactRow,
+} from "@/components/contact-details-dialog";
 
 type ContactDetailProps = {
-  contact: Contact;
+  contact: ContactRow;
   initialNotes: MeetingNote[];
   notesError: string | null;
   initialFollowUps: FollowUp[];
@@ -577,6 +573,12 @@ export function ContactDetail({
           <h1 className="text-2xl font-semibold">{contact.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">Contact relationship details</p>
         </div>
+        <ContactDetailsDialog contact={contact} startInEditMode nativeButtonTrigger>
+          <Button type="button" variant="outline" className="shrink-0">
+            <Pencil className="size-4" />
+            Edit Contact
+          </Button>
+        </ContactDetailsDialog>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
@@ -588,22 +590,22 @@ export function ContactDetail({
               <p className="mt-1 font-medium">{contact.name}</p>
             </div>
             <div className="flex items-end justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
-                <p className="mt-1">{contact.phone}</p>
+                <p className="mt-1 break-words">{contact.phone}</p>
               </div>
-              <Button type="button" variant="outline" onClick={copyPhone}>
+              <Button type="button" variant="outline" onClick={copyPhone} className="shrink-0">
                 <Copy className="size-4" />
                 Copy
               </Button>
             </div>
             {contact.email ? (
               <div className="flex items-end justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
-                  <p className="mt-1">{contact.email}</p>
+                  <p className="mt-1 break-words">{contact.email}</p>
                 </div>
-                <Button type="button" variant="outline" onClick={copyEmail}>
+                <Button type="button" variant="outline" onClick={copyEmail} className="shrink-0">
                   <Copy className="size-4" />
                   Copy
                 </Button>
@@ -629,6 +631,16 @@ export function ContactDetail({
                 </div>
               ) : (
                 <p className="mt-1 text-muted-foreground">No tags assigned</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+              {contact.notes?.trim() ? (
+                <p className="mt-1 whitespace-pre-wrap">{contact.notes}</p>
+              ) : (
+                <p className="mt-1 text-muted-foreground">
+                  No notes yet — e.g. company name, designation, sector
+                </p>
               )}
             </div>
           </div>
