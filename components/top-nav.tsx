@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, User } from "lucide-react";
 import { createClient } from "@/src/lib/supabase/client";
+import { NotificationBell } from "@/components/notification-bell";
 import { useSidebar } from "@/components/sidebar-provider";
 import { cn } from "@/lib/utils";
 
@@ -69,18 +70,21 @@ export function TopNav() {
           CREST
         </span>
       </div>
-      <Link
-        href="/my-profile"
-        className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-full border transition-colors",
-          initials
-            ? "bg-primary/10 text-xs font-semibold text-primary hover:bg-accent hover:text-accent-foreground"
-            : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        )}
-        title="My Profile"
-      >
-        {initials ? initials : <User className="h-4 w-4" />}
-      </Link>
+      <div className="flex items-center gap-2">
+        <NotificationBell />
+        <Link
+          href="/my-profile"
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-full border transition-colors",
+            initials
+              ? "bg-primary/10 text-xs font-semibold text-primary hover:bg-accent hover:text-accent-foreground"
+              : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          )}
+          title="My Profile"
+        >
+          {initials ? initials : <User className="h-4 w-4" />}
+        </Link>
+      </div>
     </header>
   );
 }

@@ -3,33 +3,43 @@ import Link from "next/link";
 import { requireAuth } from "@/lib/auth";
 import type { BroadcastData } from "@/app/broadcasts/actions";
 import { BroadcastsTable } from "@/components/broadcasts-table";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Button } from "@/components/ui/button";
+import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 
 export const metadata: Metadata = {
   title: "Broadcasts",
 };
 
-export default async function BroadcastsPage() {
+export default async function BroadcastsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const requestedPage = parsePage((await searchParams).page);
   const { supabase } = await requireAuth();
 
-  const [broadcastsResult, groupsResult, contactsResult] = await Promise.all([
-    supabase
-      .from("broadcasts")
-      .select(
-        "id, message_text, target_type, target_ids, status, scheduled_for, sent_at, created_at"
-      )
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("groups")
-      .select("id, name")
-      .order("name", { ascending: true }),
-    supabase
-      .from("contacts")
-      .select("id, name, phone")
-      .is("deleted_at", null)
-      .order("name", { ascending: true }),
-  ]);
+  const { count, error: countError } = await supabase
+    .from("broadcasts")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
+
+  const totalCount = count ?? 0;
+  // Clamp so a stale or hand-typed ?page=999 shows the last page instead of erroring.
+  const page = Math.min(requestedPage, getTotalPages(totalCount));
+  const { from, to } = getPageRange(page);
+
+  const broadcastsResult = countError
+    ? { data: null, error: countError }
+    : await supabase
+        .from("broadcasts")
+        .select(
+          "id, message_text, target_type, target_ids, status, scheduled_for, sent_at, created_at"
+        )
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
 
   if (broadcastsResult.error) {
     return (
@@ -41,12 +51,6 @@ export default async function BroadcastsPage() {
   }
 
   const broadcasts = (broadcastsResult.data ?? []) as BroadcastData[];
-  const groups = (groupsResult.data ?? []) as { id: string; name: string }[];
-  const contacts = (contactsResult.data ?? []) as {
-    id: string;
-    name: string;
-    phone: string;
-  }[];
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
@@ -65,11 +69,8 @@ export default async function BroadcastsPage() {
       </div>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col">
-        <BroadcastsTable
-          broadcasts={broadcasts}
-          groups={groups}
-          contacts={contacts}
-        />
+        <BroadcastsTable key={page} broadcasts={broadcasts} />
+        <PaginationControls page={page} totalCount={totalCount} itemLabel="broadcasts" />
       </div>
     </div>
   );

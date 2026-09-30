@@ -5,9 +5,10 @@ import type { ContactRow } from "@/components/contact-details-dialog";
 import { ContactsTable } from "@/components/contacts-table";
 import { ImportContactsDialog } from "@/components/import-contacts-dialog";
 import { LiveSearchInput } from "@/components/live-search-input";
+import { PaginationControls } from "@/components/pagination-controls";
 import { TagFilter } from "@/components/tag-filter";
-import { isInvestorTag } from "@/lib/tags";
-import { fetchAllPages } from "@/lib/supabase-pagination";
+import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
+import { INVESTOR_TAG } from "@/lib/tags";
 
 export const metadata: Metadata = {
   title: "Contacts",
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
 export default async function ContactsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; tags?: string }>;
+  searchParams: Promise<{ search?: string; tags?: string; page?: string }>;
 }) {
   const resolvedSearchParams = await searchParams;
   const search = resolvedSearchParams.search?.trim() ?? "";
@@ -24,8 +25,23 @@ export default async function ContactsPage({
   const selectedTags = tagsParam
     ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
+  const requestedPage = parsePage(resolvedSearchParams.page);
 
   const { supabase } = await requireAuth();
+
+  const searchFilter = `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`;
+
+  function buildFilteredCountQuery() {
+    let query = supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null);
+
+    if (search) query = query.or(searchFilter);
+    if (selectedTags.length > 0) query = query.overlaps("tags", selectedTags);
+
+    return query;
+  }
 
   function buildContactsQuery() {
     let query = supabase
@@ -35,36 +51,64 @@ export default async function ContactsPage({
       )
       .is("deleted_at", null);
 
-    if (search) {
-      query = query.or(
-        `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-      );
-    }
-
-    if (selectedTags.length > 0) {
-      query = query.overlaps("tags", selectedTags);
-    }
+    if (search) query = query.or(searchFilter);
+    if (selectedTags.length > 0) query = query.overlaps("tags", selectedTags);
 
     return query;
   }
 
   let contacts: ContactRow[] = [];
-  let contactMetrics: Array<{ tags: string[] | null }> = [];
-  let groups: Array<{ id: string }> = [];
+  let filteredCount = 0;
+  let page = requestedPage;
+  let totalContacts = 0;
+  let investors = 0;
+  let taggedContacts = 0;
+  let totalGroups = 0;
   let loadError: string | null = null;
 
   try {
-    [contacts, contactMetrics, groups] = await Promise.all([
-      fetchAllPages<ContactRow>((from, to) =>
-        buildContactsQuery().order("date_saved", { ascending: false }).range(from, to)
-      ),
-      fetchAllPages<{ tags: string[] | null }>((from, to) =>
-        supabase.from("contacts").select("tags").is("deleted_at", null).range(from, to)
-      ),
-      fetchAllPages<{ id: string }>((from, to) =>
-        supabase.from("groups").select("id").range(from, to)
-      ),
+    const [filtered, total, investorCount, taggedCount, groupCount] = await Promise.all([
+      buildFilteredCountQuery(),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .contains("tags", [INVESTOR_TAG]),
+      supabase
+        .from("contacts")
+        .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .neq("tags", "{}"),
+      supabase.from("groups").select("id", { count: "exact", head: true }),
     ]);
+
+    const countError = [filtered, total, investorCount, taggedCount, groupCount].find(
+      (result) => result.error
+    )?.error;
+    if (countError) throw new Error(countError.message);
+
+    filteredCount = filtered.count ?? 0;
+    totalContacts = total.count ?? 0;
+    investors = investorCount.count ?? 0;
+    taggedContacts = taggedCount.count ?? 0;
+    totalGroups = groupCount.count ?? 0;
+
+    // Clamp so a stale or hand-typed ?page=999 shows the last page instead of erroring.
+    page = Math.min(requestedPage, getTotalPages(filteredCount));
+    const { from, to } = getPageRange(page);
+
+    // "id" is a tie-breaker so rows sharing a date_saved don't shuffle between pages.
+    const { data, error } = await buildContactsQuery()
+      .order("date_saved", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) throw new Error(error.message);
+    contacts = (data ?? []) as unknown as ContactRow[];
   } catch (err) {
     loadError = err instanceof Error ? err.message : "Contacts could not be loaded.";
   }
@@ -79,13 +123,6 @@ export default async function ContactsPage({
       </div>
     );
   }
-
-  const totalContacts = contactMetrics.length;
-  const investors = contactMetrics.filter((contact) =>
-    contact.tags?.some((tag: string) => isInvestorTag(tag))
-  ).length;
-  const taggedContacts = contactMetrics.filter((contact) => contact.tags?.length).length;
-  const totalGroups = groups.length;
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
@@ -139,10 +176,11 @@ export default async function ContactsPage({
       {/* Table */}
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
         <ContactsTable
-          key={`${search}-${tagsParam}`}
+          key={`${search}-${tagsParam}-${page}`}
           contacts={contacts}
           search={search}
         />
+        <PaginationControls page={page} totalCount={filteredCount} />
       </div>
     </div>
   );

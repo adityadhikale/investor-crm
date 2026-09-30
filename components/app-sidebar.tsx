@@ -13,9 +13,12 @@ import {
   FileText,
   Tag as TagIcon,
   ChevronDown,
+  MessageCircle,
 } from "lucide-react";
 import { useSidebar } from "@/components/sidebar-provider";
 import { TAG_OPTIONS, INVESTOR_TAG } from "@/lib/tags";
+import { getUnreadConversationCount } from "@/app/unread-messages/actions";
+import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
 import {
   Sheet,
   SheetContent,
@@ -27,6 +30,7 @@ import {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/unread-messages", label: "Unread Messages", icon: MessageCircle },
   { href: "/groups", label: "Groups", icon: Folder },
   { href: "/investors", label: "Investors", icon: TrendingUp },
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },
@@ -43,6 +47,30 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { isOpen, setIsOpen, close } = useSidebar();
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (pathname === "/login") return;
+
+    let cancelled = false;
+    function refreshUnreadCount() {
+      getUnreadConversationCount()
+        .then((count) => {
+          if (!cancelled) setUnreadCount(count);
+        })
+        .catch(() => {});
+    }
+
+    refreshUnreadCount();
+    const interval = window.setInterval(refreshUnreadCount, 60_000);
+    window.addEventListener(UNREAD_CHANGED_EVENT, refreshUnreadCount);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener(UNREAD_CHANGED_EVENT, refreshUnreadCount);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     close();
@@ -80,7 +108,12 @@ export function AppSidebar() {
             )}
           >
             <Icon className="h-3.5 w-3.5 shrink-0" />
-            <span>{item.label}</span>
+            <span className="flex-1">{item.label}</span>
+            {item.href === "/unread-messages" && unreadCount > 0 && (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </Link>
         );
       })}

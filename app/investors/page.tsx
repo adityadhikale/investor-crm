@@ -7,7 +7,9 @@ import {
   type InvestorTrackingRow,
 } from "@/components/investor-tracking-table";
 import { INVESTOR_TAG } from "@/lib/tags";
+import { PaginationControls } from "@/components/pagination-controls";
 import { fetchAllPages } from "@/lib/supabase-pagination";
+import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 
 export const metadata: Metadata = {
   title: "Investors",
@@ -26,33 +28,53 @@ type FollowUpRow = {
 export default async function InvestorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string }>;
+  searchParams: Promise<{ search?: string; page?: string }>;
 }) {
-  const search = (await searchParams).search?.trim() ?? "";
+  const resolvedSearchParams = await searchParams;
+  const search = resolvedSearchParams.search?.trim() ?? "";
+  const requestedPage = parsePage(resolvedSearchParams.page);
 
   const { supabase } = await requireAuth();
 
   let contacts: ContactRow[] = [];
   let interactions: InteractionRow[] = [];
   let followUps: FollowUpRow[] = [];
+  let totalCount = 0;
+  let page = requestedPage;
   let loadError: string | null = null;
 
   try {
-    contacts = await fetchAllPages<ContactRow>((from, to) => {
-      let query = supabase
-        .from("contacts")
-        .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
-        .contains("tags", [INVESTOR_TAG])
-        .is("deleted_at", null);
+    const searchFilter = `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`;
 
-      if (search) {
-        query = query.or(
-          `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-        );
-      }
+    let countQuery = supabase
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .contains("tags", [INVESTOR_TAG])
+      .is("deleted_at", null);
+    if (search) countQuery = countQuery.or(searchFilter);
 
-      return query.order("name", { ascending: true }).range(from, to);
-    });
+    const { count, error: countError } = await countQuery;
+    if (countError) throw new Error(countError.message);
+
+    totalCount = count ?? 0;
+    // Clamp so a stale or hand-typed ?page=999 shows the last page instead of erroring.
+    page = Math.min(requestedPage, getTotalPages(totalCount));
+    const { from, to } = getPageRange(page);
+
+    let contactsQuery = supabase
+      .from("contacts")
+      .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
+      .contains("tags", [INVESTOR_TAG])
+      .is("deleted_at", null);
+    if (search) contactsQuery = contactsQuery.or(searchFilter);
+
+    // "id" is a tie-breaker so rows sharing a name don't shuffle between pages.
+    const { data, error } = await contactsQuery
+      .order("name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    contacts = (data ?? []) as unknown as ContactRow[];
 
     const contactIds = contacts.map((contact) => contact.id);
 
@@ -130,6 +152,7 @@ export default async function InvestorsPage({
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
         <InvestorTrackingTable investors={rows} />
+        <PaginationControls page={page} totalCount={totalCount} itemLabel="investors" />
       </div>
     </div>
   );

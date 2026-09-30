@@ -46,6 +46,7 @@ export function LiveSearchInput({
       } else {
         params.delete(paramName);
       }
+      params.delete("page");
 
       const queryString = params.toString();
       const nextUrl = queryString ? `${pathname}?${queryString}` : pathname;
@@ -64,6 +65,7 @@ export function LiveSearchInput({
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete(paramName);
+    params.delete("page");
 
     const queryString = params.toString();
     const nextUrl = queryString ? `${pathname}?${queryString}` : pathname;

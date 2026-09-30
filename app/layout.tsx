@@ -6,6 +6,8 @@ import { TopNav } from "@/components/top-nav";
 import { ToastProvider } from "@/components/toast-provider";
 import { SidebarProvider } from "@/components/sidebar-provider";
 import { MainContent } from "@/components/main-content";
+import { ThemeProvider } from "@/components/theme-provider";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,18 +43,24 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} ${maharlika.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="flex h-full flex-col">
-        <ToastProvider>
-          <SidebarProvider>
-            <TopNav />
-            <div className="flex flex-1 overflow-hidden">
-              <AppSidebar />
-              <MainContent>{children}</MainContent>
-            </div>
-          </SidebarProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <SidebarProvider>
+              <TopNav />
+              <div className="flex flex-1 overflow-hidden">
+                <AppSidebar />
+                <MainContent>{children}</MainContent>
+              </div>
+            </SidebarProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

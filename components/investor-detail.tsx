@@ -49,6 +49,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
+import { markReadAndNotify } from "@/lib/unread-events";
 import {
   WhatsAppHistory,
   type WhatsAppMessage,
@@ -787,6 +788,7 @@ export function InvestorDetail({
           isSendingReply={isSendingReply}
           onSendMedia={handleSendMedia}
           isSendingMedia={isSendingMedia}
+          onOpened={() => void markReadAndNotify(contact.id)}
           className="mb-8"
         />
       </div>

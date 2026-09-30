@@ -36,6 +36,8 @@ export type WhatsAppHistoryProps = {
   isSendingReply?: boolean;
   onSendMedia?: (file: File, caption: string) => Promise<{ error?: string } | void>;
   isSendingMedia?: boolean;
+  /** Called each time the full-history panel is opened (used to mark the chat as read). */
+  onOpened?: () => void;
 };
 
 function formatWhatsAppDate(sentAt: string | null, createdAt: string) {
@@ -68,6 +70,7 @@ export function WhatsAppHistory({
   isSendingReply = false,
   onSendMedia,
   isSendingMedia = false,
+  onOpened,
 }: WhatsAppHistoryProps) {
   const [open, setOpen] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -75,6 +78,11 @@ export function WhatsAppHistory({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isSending = isSendingReply || isSendingMedia;
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) onOpened?.();
+  }
 
   async function handleSendReply() {
     const trimmed = replyText.trim();
@@ -146,7 +154,7 @@ export function WhatsAppHistory({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setOpen(true)}
+              onClick={() => handleOpenChange(true)}
               className="shrink-0"
             >
               {hasMessages ? "View Full History" : "Send WhatsApp Message"}
@@ -261,7 +269,7 @@ export function WhatsAppHistory({
       </section>
 
       {/* Full WhatsApp History Sheet Panel */}
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent side="right" className="flex flex-col gap-0 sm:max-w-lg">
           <SheetHeader className="border-b px-4 py-3.5 sm:px-6 sm:py-5">
             <div className="flex items-center gap-2">

@@ -15,7 +15,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
+import { SettingsPanel } from "@/components/settings-panel";
 import { requireAuth } from "@/lib/auth";
+import { getAppSettings } from "@/lib/settings";
 
 export const metadata: Metadata = {
   title: "My Profile",
@@ -73,9 +75,10 @@ function formatDateTime(dateStr: string | null | undefined) {
 }
 
 export default async function MyProfilePage() {
-  const { user } = await requireAuth();
+  const { user, supabase } = await requireAuth();
 
   const profile = extractProfileDetails(user);
+  const settings = await getAppSettings(supabase);
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
@@ -83,7 +86,7 @@ export default async function MyProfilePage() {
       <div>
         <h1 className="text-2xl font-semibold">My Profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Account information and CRM workspace access.
+          Account information, CRM workspace access and settings.
         </p>
       </div>
 
@@ -240,6 +243,11 @@ export default async function MyProfilePage() {
           </div>
         </div>
       </div>
+
+      <SettingsPanel
+        initialSettings={settings}
+        envReminderEmail={process.env.REMINDER_EMAIL_TO?.trim() || null}
+      />
     </div>
   );
 }

@@ -37,6 +37,7 @@ export function TagFilter({
     } else {
       params.delete("tags");
     }
+    params.delete("page");
 
     const queryString = params.toString();
     const nextUrl = queryString ? `${pathname}?${queryString}` : pathname;
