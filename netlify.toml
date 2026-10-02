@@ -1,0 +1,17 @@
+# Netlify build settings.
+#
+# Netlify's secrets scanner fails the deploy when it finds the value of any
+# environment variable in the build output. The hits in this project are all
+# expected, so they are excluded here rather than turning the scanner off:
+#
+# - NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are public by
+#   design and are shipped to the browser (access is controlled by row-level
+#   security, not by hiding these values).
+# - REMINDER_EMAIL_TO is a contact email that also appears on the public
+#   privacy-policy page.
+# - Every other variable (WhatsApp, Gemini, scheduler, ...) appears only in
+#   Turbopack's build cache, which is never served, so that path is skipped.
+#   The scanner still checks all served files for those secrets.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,REMINDER_EMAIL_TO"
+  SECRETS_SCAN_OMIT_PATHS = ".netlify/.next/cache/**"
