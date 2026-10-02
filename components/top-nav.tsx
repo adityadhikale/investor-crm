@@ -8,6 +8,7 @@ import { createClient } from "@/src/lib/supabase/client";
 import { NotificationBell } from "@/components/notification-bell";
 import { useSidebar } from "@/components/sidebar-provider";
 import { cn } from "@/lib/utils";
+import { isPublicPath } from "@/lib/public-routes";
 
 import { getUserDisplayName, getUserInitials } from "@/lib/user";
 
@@ -48,7 +49,7 @@ export function TopNav() {
     };
   }, []);
 
-  if (pathname === "/login") {
+  if (isPublicPath(pathname)) {
     return null;
   }
 

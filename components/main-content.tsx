@@ -3,9 +3,11 @@
 import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
 
+import { isPublicPath } from "@/lib/public-routes";
+
 export function MainContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname === "/login";
+  const isLoginPage = isPublicPath(pathname);
 
   if (isLoginPage) {
     return (

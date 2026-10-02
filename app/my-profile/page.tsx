@@ -235,7 +235,20 @@ export default async function MyProfilePage() {
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t flex items-center justify-between">
+          <div className="mt-6 pt-4 border-t flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Read how personal information is handled
+            </p>
+            <Link
+              href="/privacy-policy"
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
+            >
+              Privacy Policy
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          <div className="mt-4 pt-4 border-t flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               Sign out from this device
             </p>

@@ -19,6 +19,7 @@ import { useSidebar } from "@/components/sidebar-provider";
 import { TAG_OPTIONS, INVESTOR_TAG } from "@/lib/tags";
 import { getUnreadConversationCount } from "@/app/unread-messages/actions";
 import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
+import { isPublicPath } from "@/lib/public-routes";
 import {
   Sheet,
   SheetContent,
@@ -50,7 +51,7 @@ export function AppSidebar() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    if (pathname === "/login") return;
+    if (isPublicPath(pathname)) return;
 
     let cancelled = false;
     function refreshUnreadCount() {
@@ -86,7 +87,7 @@ export function AppSidebar() {
     return () => window.removeEventListener("resize", handleResize);
   }, [close]);
 
-  if (pathname === "/login") {
+  if (isPublicPath(pathname)) {
     return null;
   }
 

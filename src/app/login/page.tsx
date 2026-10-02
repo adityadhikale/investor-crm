@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Lock, Mail, Shield } from "lucide-react";
 
@@ -162,6 +163,12 @@ export default function LoginPage() {
                   Your data is protected with industry-standard security and encrypted connections.
                 </p>
               </div>
+
+              <p className="mt-4 text-center text-xs text-muted-foreground">
+                <Link href="/privacy-policy" className="underline underline-offset-2 transition-colors hover:text-foreground">
+                  Privacy Policy
+                </Link>
+              </p>
             </form>
           </CardContent>
         </Card>
