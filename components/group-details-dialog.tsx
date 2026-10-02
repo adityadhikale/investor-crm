@@ -160,7 +160,7 @@ export function GroupDetailsDialog({
 
     if (result.error) {
       setConfirmingDelete(false);
-      toast("Failed to remove contact from group", "error");
+      toast(result.error ?? "Failed to remove contact from group", "error");
       return;
     }
 
@@ -201,7 +201,7 @@ export function GroupDetailsDialog({
 
     if (result.error) {
       setConfirmingBulkRemoval(false);
-      toast("Failed to remove contacts from group", "error");
+      toast(result.error ?? "Failed to remove contacts from group", "error");
       return;
     }
 

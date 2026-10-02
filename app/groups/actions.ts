@@ -29,20 +29,78 @@ async function hasDuplicateName(
   return { duplicate: Boolean(data), error };
 }
 
-export async function addGroup(formData: FormData) {
+const EMPTY_GROUP_ERROR = "A group must have at least one member.";
+
+async function countActiveMembers(
+  supabase: NonNullable<Awaited<ReturnType<typeof requireActionAuth>>["supabase"]>,
+  groupId: string,
+) {
+  const { count, error } = await supabase
+    .from("contact_groups")
+    .select("contact_id, contacts!inner(id)", { count: "exact", head: true })
+    .eq("group_id", groupId)
+    .is("contacts.deleted_at", null);
+
+  return { count: count ?? 0, error };
+}
+
+export async function addGroup(name: string, contactIds: string[]) {
   const { supabase, error: authError } = await requireActionAuth();
   if (authError || !supabase) return { error: "Unauthorized" };
 
-  const name = String(formData.get("name") ?? "").trim();
-  const validationError = validateName(name);
+  const trimmedName = String(name ?? "").trim();
+  const validationError = validateName(trimmedName);
   if (validationError) return { error: validationError };
 
-  const duplicateCheck = await hasDuplicateName(supabase, name);
+  const normalizedContactIds = [
+    ...new Set((contactIds ?? []).filter((id) => typeof id === "string" && id.trim())),
+  ];
+  if (!normalizedContactIds.length) {
+    return { error: `${EMPTY_GROUP_ERROR} Select at least one contact.` };
+  }
+
+  const duplicateCheck = await hasDuplicateName(supabase, trimmedName);
   if (duplicateCheck.error) return { error: "The group could not be checked for duplicates." };
   if (duplicateCheck.duplicate) return { error: "A group with this name already exists." };
 
-  const { error } = await supabase.from("groups").insert({ name });
-  if (error) return { error: "The group could not be created." };
+  // Check the contacts exist before creating anything, so a stale selection
+  // never leaves a half-made group behind.
+  const foundIds = new Set<string>();
+  for (let i = 0; i < normalizedContactIds.length; i += 100) {
+    const { data: contacts, error: contactsError } = await supabase
+      .from("contacts")
+      .select("id")
+      .is("deleted_at", null)
+      .in("id", normalizedContactIds.slice(i, i + 100));
+
+    if (contactsError) return { error: "The selected contacts could not be checked." };
+    (contacts ?? []).forEach((contact) => foundIds.add(contact.id as string));
+  }
+  if (foundIds.size !== normalizedContactIds.length) {
+    return { error: "One or more selected contacts could not be found." };
+  }
+
+  const { data: group, error } = await supabase
+    .from("groups")
+    .insert({ name: trimmedName })
+    .select("id")
+    .single();
+  if (error || !group) return { error: "The group could not be created." };
+
+  for (let i = 0; i < normalizedContactIds.length; i += 500) {
+    const { error: membersError } = await supabase.from("contact_groups").insert(
+      normalizedContactIds
+        .slice(i, i + 500)
+        .map((contactId) => ({ contact_id: contactId, group_id: group.id })),
+    );
+
+    if (membersError) {
+      // Roll back so an empty or partial group is never left behind.
+      await supabase.from("contact_groups").delete().eq("group_id", group.id);
+      await supabase.from("groups").delete().eq("id", group.id);
+      return { error: "The group could not be created with those contacts." };
+    }
+  }
 
   revalidatePath("/groups");
   revalidatePath("/contacts");
@@ -116,6 +174,14 @@ export async function removeContactFromGroup(groupId: string, contactId: string)
   if (membershipError) return { error: "The group membership could not be checked." };
   if (!membership) return { error: "This contact is not in the group." };
 
+  const members = await countActiveMembers(supabase, groupId);
+  if (members.error) return { error: "The group members could not be counted." };
+  if (members.count <= 1) {
+    return {
+      error: `${EMPTY_GROUP_ERROR} Add another contact first, or delete the group.`,
+    };
+  }
+
   const { error } = await supabase
     .from("contact_groups")
     .delete()
@@ -166,6 +232,14 @@ export async function removeContactsFromGroup(groupId: string, contactIds: strin
 
   const memberIds = [...new Set((memberships ?? []).map((membership) => membership.contact_id))];
   if (!memberIds.length) return { error: "The selected contacts are not in this group." };
+
+  const members = await countActiveMembers(supabase, groupId);
+  if (members.error) return { error: "The group members could not be counted." };
+  if (members.count - memberIds.length < 1) {
+    return {
+      error: `${EMPTY_GROUP_ERROR} Keep at least one contact, or delete the group.`,
+    };
+  }
 
   const { error } = await supabase
     .from("contact_groups")
@@ -268,6 +342,37 @@ export async function getGroupContactOptions(groupId: string, search = "") {
   return {
     contacts: contacts.filter((contact) => !memberIds.has(contact.id)),
     totalContacts: contacts.length,
+  };
+}
+
+const NEW_GROUP_CONTACT_LIMIT = 100;
+
+/**
+ * Contacts to pick from when creating a group. Capped (and searchable) rather
+ * than loading every contact, which keeps the sheet fast with thousands of rows.
+ */
+export async function searchContactsForNewGroup(search = "") {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) return { error: "Unauthorized" };
+
+  const trimmedSearch = search.trim();
+
+  let query = supabase.from("contacts").select("id, name, phone").is("deleted_at", null);
+  if (trimmedSearch) {
+    query = query.or(`name.ilike.%${trimmedSearch}%,phone.ilike.%${trimmedSearch}%`);
+  }
+
+  const { data, error } = await query
+    .order("name", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(NEW_GROUP_CONTACT_LIMIT + 1);
+
+  if (error) return { error: "Contacts could not be loaded." };
+
+  const rows = (data ?? []) as GroupContactOption[];
+  return {
+    contacts: rows.slice(0, NEW_GROUP_CONTACT_LIMIT),
+    hasMore: rows.length > NEW_GROUP_CONTACT_LIMIT,
   };
 }
 
