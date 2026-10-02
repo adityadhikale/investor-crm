@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { supabase } from "@/src/lib/supabase";
+import { createServiceRoleClient } from "@/lib/supabase-service";
 import { normalizeToLocalPhone } from "@/lib/whatsapp";
 
 // In-memory bounded cache for recently processed Meta message IDs (wamid)
@@ -362,6 +362,12 @@ async function processSingleMessage({
   if (messageId && markAndCheckDuplicateId(messageId)) {
     return;
   }
+
+  // The webhook has no signed-in user, so it needs the server-only service
+  // client. With the public anon key, row-level security hides every contact
+  // (so no message could be matched to one) and would have to be loosened for
+  // anyone on the internet to read the chat history.
+  const supabase = createServiceRoleClient();
 
   // Extract message content & media info safely without assuming text
   let messageText: string | null = null;
