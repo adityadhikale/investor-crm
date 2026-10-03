@@ -173,23 +173,28 @@ export default async function DashboardPage() {
       fetchAllPages<ContactItem>((from, to) =>
         supabase.from("contacts").select("id, name, tags").is("deleted_at", null).range(from, to)
       ),
-      fetchAllPages<FollowUpRecord>((from, to) =>
-        supabase
-          .from("follow_ups")
-          .select("id, contact_id, due_date, message, is_done, created_at")
-          .eq("is_done", false)
-          .is("deleted_at", null)
-          .order("due_date", { ascending: true })
-          .range(from, to)
-      ),
-      fetchAllPages<InteractionRecord>((from, to) =>
-        supabase
-          .from("interactions")
-          .select("id, contact_id, type, note, created_at")
-          .is("deleted_at", null)
-          .order("created_at", { ascending: false })
-          .range(from, to)
-      ).then((rows) => rows.slice(0, 30)),
+      // Only the first 8 of each are shown, so fetch just those.
+      supabase
+        .from("follow_ups")
+        .select("id, contact_id, due_date, message, is_done, created_at")
+        .eq("is_done", false)
+        .is("deleted_at", null)
+        .order("due_date", { ascending: true })
+        .limit(8)
+        .then(({ data, error }) => {
+          if (error) throw new Error(error.message);
+          return (data ?? []) as FollowUpRecord[];
+        }),
+      supabase
+        .from("interactions")
+        .select("id, contact_id, type, note, created_at")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(8)
+        .then(({ data, error }) => {
+          if (error) throw new Error(error.message);
+          return (data ?? []) as InteractionRecord[];
+        }),
       fetchAllPages<{ id: string; created_at: string }>((from, to) =>
         supabase
           .from("follow_ups")
