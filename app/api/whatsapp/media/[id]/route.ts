@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/src/lib/supabase/server";
 import { storeInboundWhatsAppMedia } from "@/lib/inbound-media";
+import { metaMediaIdFrom } from "@/lib/media-ref";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +36,13 @@ export async function GET(
     return new NextResponse("This message has no attachment.", { status: 404 });
   }
 
-  if (!mediaUrl.startsWith("meta_media_id:")) {
+  const mediaId = metaMediaIdFrom(mediaUrl);
+  if (!mediaId) {
     return NextResponse.redirect(mediaUrl);
   }
 
   try {
-    const storedUrl = await storeInboundWhatsAppMedia(mediaUrl.slice("meta_media_id:".length));
+    const storedUrl = await storeInboundWhatsAppMedia(mediaId);
     await supabase.from("whatsapp_messages").update({ media_url: storedUrl }).eq("id", id);
     return NextResponse.redirect(storedUrl);
   } catch {

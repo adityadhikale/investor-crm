@@ -408,10 +408,10 @@ async function processSingleMessage({
     const mediaObj = msgData[type] as MetaMediaData | undefined;
 
     messageText = mediaObj?.caption ?? null;
-    mediaUrl = mediaObj?.link || mediaObj?.url || null;
-
-    // Meta only sends a media ID: download the file now and keep our own
-    // copy. If that fails, keep the ID so it can be fetched when opened.
+    // Meta's own `url` only works with our access token, so it can't be shown
+    // in the browser. Download the file by its media ID and keep our own
+    // copy; if that fails, keep the ID so it can be fetched when opened.
+    mediaUrl = mediaObj?.link || null;
     if (!mediaUrl && mediaObj?.id) {
       try {
         mediaUrl = await storeInboundWhatsAppMedia(mediaObj.id, mediaObj.filename);

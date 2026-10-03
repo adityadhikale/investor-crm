@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { startVisibleInterval } from "@/lib/visible-interval";
+import { metaMediaIdFrom } from "@/lib/media-ref";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -68,7 +69,7 @@ const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
  * /api/whatsapp/media, which fetches and keeps a copy on first open.
  */
 function MessageMedia({ messageId, mediaUrl }: { messageId: string; mediaUrl: string }) {
-  if (mediaUrl.startsWith("meta_media_id:")) {
+  if (metaMediaIdFrom(mediaUrl)) {
     return (
       <a
         href={`/api/whatsapp/media/${messageId}`}
