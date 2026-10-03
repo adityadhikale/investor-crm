@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
+import { startVisibleInterval } from "@/lib/visible-interval";
 import { cn } from "@/lib/utils";
 
 const POLL_INTERVAL_MS = 60_000;
@@ -49,11 +50,11 @@ export function NotificationBell() {
 
   useEffect(() => {
     refresh();
-    const interval = window.setInterval(refresh, POLL_INTERVAL_MS);
+    const stopPolling = startVisibleInterval(refresh, POLL_INTERVAL_MS);
     window.addEventListener(UNREAD_CHANGED_EVENT, refresh);
 
     return () => {
-      window.clearInterval(interval);
+      stopPolling();
       window.removeEventListener(UNREAD_CHANGED_EVENT, refresh);
     };
   }, [refresh]);

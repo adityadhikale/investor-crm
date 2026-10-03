@@ -19,6 +19,7 @@ import { useSidebar } from "@/components/sidebar-provider";
 import { TAG_OPTIONS, INVESTOR_TAG } from "@/lib/tags";
 import { getUnreadConversationCount } from "@/app/unread-messages/actions";
 import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
+import { startVisibleInterval } from "@/lib/visible-interval";
 import { isPublicPath } from "@/lib/public-routes";
 import {
   Sheet,
@@ -63,12 +64,12 @@ export function AppSidebar() {
     }
 
     refreshUnreadCount();
-    const interval = window.setInterval(refreshUnreadCount, 60_000);
+    const stopPolling = startVisibleInterval(refreshUnreadCount, 60_000);
     window.addEventListener(UNREAD_CHANGED_EVENT, refreshUnreadCount);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      stopPolling();
       window.removeEventListener(UNREAD_CHANGED_EVENT, refreshUnreadCount);
     };
   }, [pathname]);
