@@ -466,9 +466,29 @@ export async function dispatchDueBroadcasts(): Promise<DispatchDueBroadcastsSumm
   const results: ProcessedBroadcastResult[] = [];
 
   for (const broadcast of dueBroadcasts) {
+    // Claim the broadcast before sending: flip it from "scheduled" to "sent"
+    // in one conditional update. If two runs overlap, or a run is cut off by a
+    // function time limit, the broadcast can never be sent twice.
+    const { data: claimed, error: claimError } = await supabase
+      .from("broadcasts")
+      .update({ status: "sent", sent_at: new Date().toISOString() })
+      .eq("id", broadcast.id)
+      .eq("status", "scheduled")
+      .select("id");
+
+    if (claimError || !claimed || claimed.length === 0) {
+      continue;
+    }
+
     try {
       const res = await dispatchBroadcast(broadcast.id, supabase);
       if ("error" in res && res.error) {
+        // These errors all happen before any message is sent, so put it back
+        // to "scheduled" (as before) and let a later run retry it.
+        await supabase
+          .from("broadcasts")
+          .update({ status: "scheduled", sent_at: null })
+          .eq("id", broadcast.id);
         results.push({
           broadcastId: broadcast.id,
           success: false,
