@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createServiceRoleClient } from "@/lib/supabase-service";
+import { safeEqual } from "@/lib/secure-compare";
 import { normalizeToLocalPhone } from "@/lib/whatsapp";
 
 // In-memory bounded cache for recently processed Meta message IDs (wamid)
@@ -174,7 +175,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify HMAC-SHA256 signature if app secret is configured
+  // Verify the HMAC-SHA256 signature. Fails closed in production if the app
+  // secret is missing; local dev without a secret stays usable.
   const appSecret =
     process.env.META_APP_SECRET || process.env.WHATSAPP_APP_SECRET;
   if (appSecret) {
@@ -189,12 +191,15 @@ export async function POST(request: Request) {
       .createHmac("sha256", appSecret)
       .update(rawBody)
       .digest("hex")}`;
-    if (signature !== expectedSignature) {
+    if (!safeEqual(signature, expectedSignature)) {
       return NextResponse.json(
         { error: "Invalid signature" },
         { status: 401 },
       );
     }
+  } else if (process.env.NODE_ENV === "production") {
+    console.error("[WhatsApp Webhook] META_APP_SECRET is not set; rejecting request.");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 401 });
   }
 
   let body: MetaWebhookPayload;
