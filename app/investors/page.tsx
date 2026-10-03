@@ -10,6 +10,7 @@ import { INVESTOR_TAG } from "@/lib/tags";
 import { PaginationControls } from "@/components/pagination-controls";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
+import { ilikeAnyFilter } from "@/lib/postgrest-filter";
 
 export const metadata: Metadata = {
   title: "Investors",
@@ -44,7 +45,7 @@ export default async function InvestorsPage({
   let loadError: string | null = null;
 
   try {
-    const searchFilter = `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`;
+    const searchFilter = ilikeAnyFilter(["name", "phone", "email"], search);
 
     let countQuery = supabase
       .from("contacts")

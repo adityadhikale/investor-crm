@@ -8,6 +8,7 @@ import {
   type GroupContactRelation,
 } from "@/lib/group-members";
 import { fetchAllPages } from "@/lib/supabase-pagination";
+import { ilikeAnyFilter } from "@/lib/postgrest-filter";
 
 function validateName(value: string) {
   const name = value.trim();
@@ -329,7 +330,7 @@ export async function getGroupContactOptions(groupId: string, search = "") {
       let query = supabase.from("contacts").select("id, name, phone").is("deleted_at", null);
       if (trimmedSearch) {
         query = query.or(
-          `name.ilike.%${trimmedSearch}%,phone.ilike.%${trimmedSearch}%`,
+          ilikeAnyFilter(["name", "phone"], trimmedSearch),
         );
       }
       return query.order("name", { ascending: true }).range(from, to);
@@ -359,7 +360,7 @@ export async function searchContactsForNewGroup(search = "") {
 
   let query = supabase.from("contacts").select("id, name, phone").is("deleted_at", null);
   if (trimmedSearch) {
-    query = query.or(`name.ilike.%${trimmedSearch}%,phone.ilike.%${trimmedSearch}%`);
+    query = query.or(ilikeAnyFilter(["name", "phone"], trimmedSearch));
   }
 
   const { data, error } = await query
