@@ -12,6 +12,8 @@
 # - Every other variable (WhatsApp, Gemini, scheduler, ...) appears only in
 #   Turbopack's build cache, which is never served, so that path is skipped.
 #   The scanner still checks all served files for those secrets.
+# - HANDOFF.md (project notes, never served) names the WhatsApp account and
+#   phone number IDs. They are identifiers, not credentials.
 [build.environment]
   SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,REMINDER_EMAIL_TO"
-  SECRETS_SCAN_OMIT_PATHS = ".netlify/.next/cache/**"
+  SECRETS_SCAN_OMIT_PATHS = ".netlify/.next/cache/**,HANDOFF.md"
