@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { sendEmail } from "@/lib/resend";
 import { getAppSettings } from "@/lib/settings";
+import { getUnknownConversations } from "@/lib/unknown-numbers";
 
 export interface DueFollowUpRow {
   id: string;
@@ -115,7 +116,7 @@ function buildReminderEmailHtml(
       .join("");
     return `
       <h2 style="font-size:16px;margin:24px 0 8px;">Unread WhatsApp messages (${unread.length})</h2>
-      <p style="font-size:13px;color:#6b7280;margin:0 0 8px;">These contacts have written to you and are still waiting for a reply.</p>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 8px;">These contacts have written to you and are still waiting for a reply. Numbers marked "not saved" can be saved from Unread Messages in the CRM.</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         <thead>
           <tr>
@@ -272,7 +273,28 @@ export async function runReminderDispatch({
     }
   }
 
-  if (followUps.length === 0 && unread.length === 0) {
+  // Numbers that messaged but aren't saved as contacts are listed too.
+  if (settings.reminderIncludeUnread) {
+    for (const conversation of await getUnknownConversations(supabase)) {
+      unread.push({
+        contact_id: "",
+        contact_name: conversation.profileName
+          ? `${conversation.profileName} (not saved)`
+          : "Unsaved number",
+        contact_phone: conversation.phone,
+        unread_count: conversation.messageCount,
+        last_message_at: conversation.lastMessageAt,
+        last_message_text:
+          conversation.lastMessageText?.trim() ||
+          (conversation.hasMedia ? "[Media message]" : "No text"),
+      });
+    }
+  }
+
+  const nothingToReport = followUps.length === 0 && unread.length === 0;
+  // The daily email is skipped when there's nothing to report; a test still
+  // sends, so the email setup itself can be checked.
+  if (nothingToReport && !ignoreEnabledSwitch) {
     return { success: true, dueCount: 0, unreadCount: 0, emailed: false };
   }
 
@@ -288,11 +310,19 @@ export async function runReminderDispatch({
   }
 
   try {
-    await sendEmail({
-      to: recipient,
-      subject: buildSubject(followUps.length, unread.length),
-      html: buildReminderEmailHtml(followUps, unread, today),
-    });
+    await sendEmail(
+      nothingToReport
+        ? {
+            to: recipient,
+            subject: "CREST CRM: test reminder (nothing due today)",
+            html: `<p style="font-family:Arial,sans-serif;font-size:14px;color:#111">Your CREST CRM reminder email is working.</p><p style="font-family:Arial,sans-serif;font-size:14px;color:#555">No follow-ups are due and no WhatsApp messages are waiting for a reply right now. The daily reminder at 10:00 AM is only sent when there is something to report.</p>`,
+          }
+        : {
+            to: recipient,
+            subject: buildSubject(followUps.length, unread.length),
+            html: buildReminderEmailHtml(followUps, unread, today),
+          }
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to send reminder email.";
     return {
