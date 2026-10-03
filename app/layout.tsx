@@ -15,14 +15,18 @@ const geistSans = Geist({
   subsets: ["latin"],
 });
 
+// Mono is only used on template/broadcast screens and Playfair only as the
+// logo's fallback, so they load on demand instead of being preloaded everywhere.
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  preload: false,
 });
 
 const playfair = Playfair_Display({
   variable: "--font-playfair",
   subsets: ["latin"],
+  preload: false,
 });
 
 const maharlika = localFont({
