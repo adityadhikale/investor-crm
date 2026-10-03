@@ -62,6 +62,56 @@ export type WhatsAppHistoryProps = {
 
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * A photo, voice note, audio, video or file inside a chat bubble. Older
+ * incoming files that were only saved as a Meta reference open through
+ * /api/whatsapp/media, which fetches and keeps a copy on first open.
+ */
+function MessageMedia({ messageId, mediaUrl }: { messageId: string; mediaUrl: string }) {
+  if (mediaUrl.startsWith("meta_media_id:")) {
+    return (
+      <a
+        href={`/api/whatsapp/media/${messageId}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mb-1 inline-flex items-center gap-1.5 underline underline-offset-2"
+      >
+        <Paperclip className="size-3.5 shrink-0" />
+        Open attachment
+      </a>
+    );
+  }
+
+  const path = mediaUrl.split("?")[0].toLowerCase();
+  if (/\.(jpe?g|png|gif|webp)$/.test(path)) {
+    return (
+      <a href={mediaUrl} target="_blank" rel="noreferrer">
+        <img src={mediaUrl} alt="WhatsApp photo" className="mb-1 max-h-64 rounded-md object-cover" />
+      </a>
+    );
+  }
+  if (/\.(ogg|opus|mp3|m4a|aac|amr|wav)$/.test(path)) {
+    return <audio controls preload="none" src={mediaUrl} className="mb-1 h-10 w-60 max-w-full" />;
+  }
+  if (/\.(mp4|3gp|mov|webm)$/.test(path)) {
+    return (
+      <video controls preload="metadata" src={mediaUrl} className="mb-1 max-h-64 max-w-full rounded-md" />
+    );
+  }
+  const filename = decodeURIComponent(path.split("/").pop() ?? "").replace(/^\d+-/, "");
+  return (
+    <a
+      href={mediaUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="mb-1 inline-flex max-w-full items-center gap-1.5 underline underline-offset-2"
+    >
+      <Paperclip className="size-3.5 shrink-0" />
+      <span className="truncate">{filename || "View attachment"}</span>
+    </a>
+  );
+}
+
 function dayKey(at: string) {
   const d = new Date(at);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -494,25 +544,7 @@ export function WhatsAppHistory({
                         )}
                       >
                         {message.media_url && (
-                          /\.(jpe?g|png|gif|webp)$/i.test(message.media_url) ? (
-                            <a href={message.media_url} target="_blank" rel="noreferrer">
-                              <img
-                                src={message.media_url}
-                                alt="WhatsApp media"
-                                className="mb-1 max-h-64 rounded-md object-cover"
-                              />
-                            </a>
-                          ) : (
-                            <a
-                              href={message.media_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mb-1 inline-flex items-center gap-1.5 underline underline-offset-2"
-                            >
-                              <Paperclip className="size-3.5 shrink-0" />
-                              View attachment
-                            </a>
-                          )
+                          <MessageMedia messageId={message.id} mediaUrl={message.media_url} />
                         )}
                         {hasText && (
                           <p className="whitespace-pre-wrap break-words leading-snug">

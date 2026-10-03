@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { safeEqual } from "@/lib/secure-compare";
+import { storeInboundWhatsAppMedia } from "@/lib/inbound-media";
 import { normalizeToLocalPhone } from "@/lib/whatsapp";
 
 // In-memory bounded cache for recently processed Meta message IDs (wamid)
@@ -407,10 +408,18 @@ async function processSingleMessage({
     const mediaObj = msgData[type] as MetaMediaData | undefined;
 
     messageText = mediaObj?.caption ?? null;
-    mediaUrl =
-      mediaObj?.link ||
-      mediaObj?.url ||
-      (mediaObj?.id ? `meta_media_id:${mediaObj.id}` : null);
+    mediaUrl = mediaObj?.link || mediaObj?.url || null;
+
+    // Meta only sends a media ID: download the file now and keep our own
+    // copy. If that fails, keep the ID so it can be fetched when opened.
+    if (!mediaUrl && mediaObj?.id) {
+      try {
+        mediaUrl = await storeInboundWhatsAppMedia(mediaObj.id, mediaObj.filename);
+      } catch (err) {
+        console.error("[WhatsApp Webhook] Could not store incoming media:", err);
+        mediaUrl = `meta_media_id:${mediaObj.id}`;
+      }
+    }
   }
 
   // Parse timestamp
