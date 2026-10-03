@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActionAuth } from "@/lib/auth";
-import { isInvestorTag } from "@/lib/tags";
 import { generateFollowUpSuggestion } from "@/lib/gemini";
 
 export type FollowUp = {
@@ -33,7 +32,7 @@ export async function getFollowUps(contactId: string) {
   if (authError || !supabase) return { error: "Unauthorized" };
 
   const normalizedContactId = contactId.trim();
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
 
   const { data: followUps, error } = await supabase
     .from("follow_ups")
@@ -68,7 +67,7 @@ export async function suggestFollowUp(
   if (authError || !supabase) return { error: "Unauthorized" };
 
   const normalizedContactId = contactId.trim();
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
 
   const { data: contact, error: contactError } = await supabase
     .from("contacts")
@@ -76,11 +75,7 @@ export async function suggestFollowUp(
     .eq("id", normalizedContactId)
     .maybeSingle();
 
-  if (contactError || !contact) return { error: "The investor could not be found." };
-
-  const isInvestor =
-    Array.isArray(contact.tags) && contact.tags.some((tag: string) => isInvestorTag(tag));
-  if (!isInvestor) return { error: "Follow-ups are only available for investors." };
+  if (contactError || !contact) return { error: "The contact could not be found." };
 
   const [{ data: messages, error: messagesError }, { data: notes, error: notesError }] =
     await Promise.all([
@@ -138,7 +133,7 @@ export async function addFollowUp(
   const normalizedDueDate = dueDate.trim();
   const normalizedMessage = message.trim();
 
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
   if (!isValidDate(normalizedDueDate)) return { error: "Select a valid follow-up date." };
   if (normalizedDueDate < todayAsISODate()) {
     return { error: "Follow-up date cannot be before today." };
@@ -151,12 +146,7 @@ export async function addFollowUp(
     .eq("id", normalizedContactId)
     .maybeSingle();
 
-  if (contactError || !contact) return { error: "The investor could not be found." };
-
-  const isInvestor = Array.isArray(contact.tags) && contact.tags.some(
-    (tag: string) => isInvestorTag(tag),
-  );
-  if (!isInvestor) return { error: "Follow-ups are only available for investors." };
+  if (contactError || !contact) return { error: "The contact could not be found." };
 
   const { error } = await supabase.from("follow_ups").insert({
     contact_id: normalizedContactId,
@@ -169,6 +159,7 @@ export async function addFollowUp(
 
   revalidatePath("/investors");
   revalidatePath(`/investors/${normalizedContactId}`);
+  revalidatePath(`/contacts/${normalizedContactId}`);
   return { success: true };
 }
 
@@ -180,7 +171,7 @@ export async function markFollowUpAsDone(followUpId: string, contactId: string) 
   const normalizedContactId = contactId.trim();
 
   if (!normalizedFollowUpId) return { error: "Invalid follow-up ID." };
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
 
   // 1. Verify contact exists and is an investor
   const { data: contact, error: contactError } = await supabase
@@ -190,14 +181,7 @@ export async function markFollowUpAsDone(followUpId: string, contactId: string) 
     .maybeSingle();
 
   if (contactError || !contact) {
-    return { error: "The investor could not be found." };
-  }
-
-  const isInvestor =
-    Array.isArray(contact.tags) &&
-    contact.tags.some((tag: string) => isInvestorTag(tag));
-  if (!isInvestor) {
-    return { error: "Follow-ups are only available for investors." };
+    return { error: "The contact could not be found." };
   }
 
   // 2. Verify follow-up exists, belongs to contact, and is not already done
@@ -250,6 +234,7 @@ export async function markFollowUpAsDone(followUpId: string, contactId: string) 
 
   revalidatePath("/investors");
   revalidatePath(`/investors/${normalizedContactId}`);
+  revalidatePath(`/contacts/${normalizedContactId}`);
   return { success: true };
 }
 
@@ -268,7 +253,7 @@ export async function editFollowUp(
   const normalizedMessage = message.trim();
 
   if (!normalizedFollowUpId) return { error: "Invalid follow-up ID." };
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
   if (!isValidDate(normalizedDueDate)) return { error: "Select a valid follow-up date." };
   if (normalizedDueDate < todayAsISODate()) {
     return { error: "Follow-up date cannot be before today." };
@@ -282,12 +267,7 @@ export async function editFollowUp(
     .eq("id", normalizedContactId)
     .maybeSingle();
 
-  if (contactError || !contact) return { error: "The investor could not be found." };
-
-  const isInvestor =
-    Array.isArray(contact.tags) &&
-    contact.tags.some((tag: string) => isInvestorTag(tag));
-  if (!isInvestor) return { error: "Follow-ups are only available for investors." };
+  if (contactError || !contact) return { error: "The contact could not be found." };
 
   // Verify follow-up exists, belongs to contact, and is pending (is_done === false)
   const { data: followUp, error: followUpError } = await supabase
@@ -317,6 +297,7 @@ export async function editFollowUp(
 
   revalidatePath("/investors");
   revalidatePath(`/investors/${normalizedContactId}`);
+  revalidatePath(`/contacts/${normalizedContactId}`);
   return { success: true };
 }
 
@@ -328,7 +309,7 @@ export async function deleteFollowUp(followUpId: string, contactId: string) {
   const normalizedContactId = contactId.trim();
 
   if (!normalizedFollowUpId) return { error: "Invalid follow-up ID." };
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
 
   // Verify contact exists and is an investor
   const { data: contact, error: contactError } = await supabase
@@ -337,12 +318,7 @@ export async function deleteFollowUp(followUpId: string, contactId: string) {
     .eq("id", normalizedContactId)
     .maybeSingle();
 
-  if (contactError || !contact) return { error: "The investor could not be found." };
-
-  const isInvestor =
-    Array.isArray(contact.tags) &&
-    contact.tags.some((tag: string) => isInvestorTag(tag));
-  if (!isInvestor) return { error: "Follow-ups are only available for investors." };
+  if (contactError || !contact) return { error: "The contact could not be found." };
 
   // Verify follow-up exists, belongs to contact, and is pending (is_done === false)
   const { data: followUp, error: followUpError } = await supabase
@@ -369,6 +345,7 @@ export async function deleteFollowUp(followUpId: string, contactId: string) {
 
   revalidatePath("/investors");
   revalidatePath(`/investors/${normalizedContactId}`);
+  revalidatePath(`/contacts/${normalizedContactId}`);
   return { success: true };
 }
 
@@ -380,7 +357,7 @@ export async function deleteCompletedFollowUp(followUpId: string, contactId: str
   const normalizedContactId = contactId.trim();
 
   if (!normalizedFollowUpId) return { error: "Invalid follow-up ID." };
-  if (!normalizedContactId) return { error: "The investor could not be found." };
+  if (!normalizedContactId) return { error: "The contact could not be found." };
 
   // Verify contact exists and is an investor
   const { data: contact, error: contactError } = await supabase
@@ -389,12 +366,7 @@ export async function deleteCompletedFollowUp(followUpId: string, contactId: str
     .eq("id", normalizedContactId)
     .maybeSingle();
 
-  if (contactError || !contact) return { error: "The investor could not be found." };
-
-  const isInvestor =
-    Array.isArray(contact.tags) &&
-    contact.tags.some((tag: string) => isInvestorTag(tag));
-  if (!isInvestor) return { error: "Follow-ups are only available for investors." };
+  if (contactError || !contact) return { error: "The contact could not be found." };
 
   // Verify follow-up exists, belongs to contact, and is completed (is_done === true)
   const { data: followUp, error: followUpError } = await supabase
@@ -424,7 +396,7 @@ export async function deleteCompletedFollowUp(followUpId: string, contactId: str
 
   revalidatePath("/investors");
   revalidatePath(`/investors/${normalizedContactId}`);
+  revalidatePath(`/contacts/${normalizedContactId}`);
   return { success: true };
 }
-
 
