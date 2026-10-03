@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { safeEqual } from "@/lib/secure-compare";
 import { dispatchDueBroadcasts } from "@/lib/broadcast-dispatch";
 
 export async function POST(request: Request) {
@@ -12,7 +13,7 @@ export async function POST(request: Request) {
   const token = authHeader.slice(7).trim();
 
   // Return identical generic response if SCHEDULER_SECRET is missing or token mismatches
-  if (!expectedSecret || token !== expectedSecret) {
+  if (!expectedSecret || !safeEqual(token, expectedSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
