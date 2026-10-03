@@ -67,10 +67,10 @@ export type VariableMapping = ContactFieldMapping | StaticMapping;
 export type VariableMappings = Record<string, VariableMapping>;
 
 export const SAMPLE_PREVIEW_CONTACT: Record<SupportedContactField, string> = {
-  first_name: "Aditya",
-  name: "Aditya Dhikale",
+  first_name: "Rahul",
+  name: "Rahul Sharma",
   phone: "+91 98765 43210",
-  email: "aditya@crestcapital.com",
+  email: "rahul@example.com",
 };
 
 function createDefaultMappings(
@@ -240,7 +240,8 @@ export function BroadcastEditor({
   const isEditing = mode === "edit" && Boolean(existingBroadcast);
   const isEditingScheduled = existingBroadcast?.status === "scheduled";
   const isSent = existingBroadcast?.status === "sent";
-  const isReadOnly = isSent;
+  const isSending = existingBroadcast?.status === "sending";
+  const isReadOnly = isSent || isSending;
 
   const [messageText, setMessageText] = useState(() => {
     return existingBroadcast?.message_text ?? "";
@@ -739,7 +740,9 @@ export function BroadcastEditor({
     <form onSubmit={handleSubmit} className="space-y-6">
       {isReadOnly && (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-200">
-          This broadcast has already been sent and cannot be edited.
+          {isSending
+            ? "This broadcast is going out in batches and can't be edited. It finishes on its own within a few minutes."
+            : "This broadcast has already been sent and cannot be edited."}
         </div>
       )}
 
@@ -1020,7 +1023,7 @@ export function BroadcastEditor({
               </div>
               {selectedTemplate && detectedPlaceholders.length > 0 && (
                 <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded border border-border/50">
-                  Previewed with sample contact: <strong className="font-medium text-foreground">Aditya Dhikale</strong>
+                  Previewed with sample contact: <strong className="font-medium text-foreground">{SAMPLE_PREVIEW_CONTACT.name}</strong>
                 </span>
               )}
             </div>

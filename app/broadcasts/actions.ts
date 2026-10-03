@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActionAuth } from "@/lib/auth";
 import {
-  dispatchBroadcast,
+  sendBroadcastBatch,
   type BroadcastSendSummary,
   type SendBroadcastResult,
 } from "@/lib/broadcast-dispatch";
@@ -37,7 +37,8 @@ export interface BroadcastData {
   message_text: string;
   target_type: TargetType;
   target_ids: string[];
-  status: "draft" | "scheduled" | "sent";
+  /** "sending": a large broadcast going out in batches. */
+  status: "draft" | "scheduled" | "sending" | "sent";
   created_at: string;
   scheduled_for?: string | null;
   sent_at?: string | null;
@@ -406,6 +407,11 @@ export async function deleteBroadcasts(ids: string[]) {
   return { success: true, deleted: broadcastIds.length };
 }
 
+/**
+ * Starts a draft broadcast and sends as much as fits in one request (large
+ * broadcasts go out in batches). While the result says `done: false`, call it
+ * again to continue; if the page is closed, the 5-minute scheduler finishes it.
+ */
 export async function sendBroadcastNow(
   broadcastId: string
 ): Promise<SendBroadcastResult> {
@@ -414,5 +420,5 @@ export async function sendBroadcastNow(
     return { error: "Unauthorized" };
   }
 
-  return dispatchBroadcast(broadcastId, supabase);
+  return sendBroadcastBatch(supabase, broadcastId);
 }

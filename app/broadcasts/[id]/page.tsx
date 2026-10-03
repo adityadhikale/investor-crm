@@ -60,6 +60,23 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
 
   const isSent = broadcast.status === "sent";
   const isScheduled = broadcast.status === "scheduled";
+  const isSending = broadcast.status === "sending";
+
+  // Progress of a broadcast that is going out in batches.
+  let sendingProgress: { done: number; total: number } | null = null;
+  if (isSending) {
+    const countWhere = (statuses: string[]) =>
+      supabase
+        .from("broadcast_recipients")
+        .select("id", { count: "exact", head: true })
+        .eq("broadcast_id", id)
+        .in("status", statuses);
+    const [{ count: doneCount }, { count: totalCount }] = await Promise.all([
+      countWhere(["sent", "skipped", "failed"]),
+      countWhere(["pending", "sending", "sent", "skipped", "failed"]),
+    ]);
+    sendingProgress = { done: doneCount ?? 0, total: totalCount ?? 0 };
+  }
 
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
@@ -74,7 +91,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
           </Link>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold">
-              {isSent
+              {isSent || isSending
                 ? "Broadcast Details"
                 : isScheduled
                 ? "Edit Scheduled Broadcast"
@@ -85,7 +102,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isSent
+            {isSent || isSending
               ? "View sent broadcast message and recipient target audience."
               : isScheduled
               ? "Modify your scheduled broadcast message, recipient targets, and send time."
@@ -96,6 +113,16 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
 
       <div className="mt-6 max-w-4xl">
         {isSent && <BroadcastSendReport summary={broadcast.send_summary} />}
+        {sendingProgress && (
+          <section className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-5 text-sm">
+            <h2 className="text-base font-semibold">Sending in batches</h2>
+            <p className="mt-1 text-muted-foreground">
+              {sendingProgress.done} of {sendingProgress.total} recipients done. It continues
+              automatically every few minutes; refresh to see progress. The delivery report
+              appears here when it finishes.
+            </p>
+          </section>
+        )}
         <BroadcastEditor
           mode="edit"
           existingBroadcast={broadcast}

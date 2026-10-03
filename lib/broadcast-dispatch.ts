@@ -242,39 +242,63 @@ function resolveBroadcastMessageForContact({
   return { message: resolved, params, error: null };
 }
 
+
+/** How far a broadcast has got. `done` once every recipient has an outcome. */
+export interface BroadcastProgress {
+  total: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  /** Recipients still waiting to be sent. */
+  remaining: number;
+  done: boolean;
+}
+
 export type SendBroadcastResult =
-  | {
-      success: true;
-      total: number;
-      sentCount: number;
-      failedCount: number;
-      /** Plain-text recipients skipped because their reply window is closed. */
-      skippedCount: number;
-      results: BroadcastSendResult[];
-      error?: undefined;
-    }
-  | {
-      success?: false;
-      error: string;
-      total?: undefined;
-      sentCount?: undefined;
-      failedCount?: undefined;
-      skippedCount?: undefined;
-      results?: undefined;
-    };
+  | ({ success: true; error?: undefined } & BroadcastProgress)
+  | { success?: false; error: string };
 
-export async function dispatchBroadcast(
-  broadcastId: string,
-  supabase: SupabaseClient
-): Promise<SendBroadcastResult> {
-  if (!broadcastId) {
-    return { error: "Broadcast ID is required." };
-  }
+// Netlify allows ~60 s per request. Recipients are claimed in small batches
+// and sent a few at a time, stopping with a safety margin before the limit.
+const BATCH_SIZE = 20;
+const CONCURRENCY = 5;
+const DEADLINE_MARGIN_MS = 6_000;
+/** A recipient claimed this long ago without an outcome was interrupted. */
+const STALE_SENDING_MS = 10 * 60 * 1000;
+/** Time budget for one "Send Now" / "continue" request from the browser. */
+export const SEND_NOW_BUDGET_MS = 40_000;
+/** Time budget for one scheduler run (the scheduled function waits up to 30 s). */
+const SCHEDULER_BUDGET_MS = 22_000;
 
-  // 1. Fetch broadcast row
+type TargetContact = { id: string; name: string; phone: string; email?: string | null };
+
+type RecipientRow = {
+  id: string;
+  contact_id: string | null;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+interface PreparedBroadcast {
+  id: string;
+  messageText: string;
+  targetType: string;
+  targetIds: string[];
+  templateBody: string | null;
+  mappings: Record<string, ValidatedMapping>;
+  /** Set for templates synced from Meta: sent as a real WhatsApp template. */
+  metaTemplate: { name: string; language: string } | null;
+}
+
+/** Loads a broadcast and checks its template and variable mappings. */
+async function prepareBroadcast(
+  supabase: SupabaseClient,
+  broadcastId: string
+): Promise<{ prepared?: PreparedBroadcast; error?: string }> {
   const { data: broadcast, error: fetchError } = await supabase
     .from("broadcasts")
-    .select("id, message_text, target_type, target_ids, status, template_id, variable_mappings")
+    .select("id, message_text, target_type, target_ids, template_id, variable_mappings")
     .eq("id", broadcastId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -283,17 +307,14 @@ export async function dispatchBroadcast(
     return { error: "Broadcast not found." };
   }
 
-  // 2. If template-based, load referenced template and validate variable mappings
   let templateBody: string | null = null;
-  let validatedMappings: Record<string, ValidatedMapping> = {};
-  // Set when the template is synced from Meta: it is then sent as a real
-  // WhatsApp template (allowed outside the 24-hour window), not as text.
-  let metaTemplate: { name: string; language: string } | null = null;
+  let mappings: Record<string, ValidatedMapping> = {};
+  let metaTemplate: PreparedBroadcast["metaTemplate"] = null;
 
   if (broadcast.template_id) {
     const { data: tmpl, error: tmplError } = await supabase
       .from("templates")
-      .select("id, name, language, body_text, meta_template_id, approved_at, deleted_at")
+      .select("id, name, language, body_text, meta_template_id, approved_at")
       .eq("id", broadcast.template_id)
       .is("deleted_at", null)
       .maybeSingle();
@@ -311,232 +332,386 @@ export async function dispatchBroadcast(
       metaTemplate = { name: tmpl.name, language: tmpl.language };
     }
 
-    const { error: mappingError, mappings } = validateTemplateMappingsForSend(
-      tmpl.body_text,
-      broadcast.variable_mappings
-    );
-
-    if (mappingError) {
-      return { error: mappingError };
+    const validation = validateTemplateMappingsForSend(tmpl.body_text, broadcast.variable_mappings);
+    if (validation.error) {
+      return { error: validation.error };
     }
 
     templateBody = tmpl.body_text;
-    validatedMappings = mappings;
+    mappings = validation.mappings;
   }
 
-  // 3. Resolve target contacts (with email for personalization)
-  let targetContacts: Array<{ id: string; name: string; phone: string; email?: string | null }> = [];
+  return {
+    prepared: {
+      id: broadcast.id,
+      messageText: broadcast.message_text,
+      targetType: broadcast.target_type,
+      targetIds: broadcast.target_ids ?? [],
+      templateBody,
+      mappings,
+      metaTemplate,
+    },
+  };
+}
 
-  try {
-    if (broadcast.target_type === "manual") {
-      targetContacts = await fetchAllPages<{ id: string; name: string; phone: string; email?: string | null }>(
-        (from, to) =>
-          supabase
-            .from("contacts")
-            .select("id, name, phone, email")
-            .in("id", broadcast.target_ids)
-            .is("deleted_at", null)
-            .range(from, to)
-      );
-    } else if (broadcast.target_type === "group") {
-      const relations = await fetchAllPages<{ contact_id: string; contacts: unknown }>(
-        (from, to) =>
-          supabase
-            .from("contact_groups")
-            .select("contact_id, contacts(id, name, phone, email, deleted_at)")
-            .in("group_id", broadcast.target_ids)
-            .range(from, to)
-      );
+/** The contacts a broadcast targets (group members, tagged or hand-picked). */
+async function resolveTargetContacts(
+  supabase: SupabaseClient,
+  prepared: PreparedBroadcast
+): Promise<TargetContact[]> {
+  if (prepared.targetType === "manual") {
+    return fetchAllPages<TargetContact>((from, to) =>
+      supabase
+        .from("contacts")
+        .select("id, name, phone, email")
+        .in("id", prepared.targetIds)
+        .is("deleted_at", null)
+        .range(from, to)
+    );
+  }
 
-      const contactMap = new Map<string, { id: string; name: string; phone: string; email?: string | null }>();
-      for (const rel of relations) {
-        const c = rel.contacts as unknown as {
-          id: string;
-          name: string;
-          phone: string;
-          email?: string | null;
-          deleted_at: string | null;
-        } | null;
-        if (c && !c.deleted_at && !contactMap.has(c.id)) {
-          contactMap.set(c.id, {
-            id: c.id,
-            name: c.name,
-            phone: c.phone,
-            email: c.email ?? null,
-          });
-        }
+  if (prepared.targetType === "group") {
+    const relations = await fetchAllPages<{ contact_id: string; contacts: unknown }>((from, to) =>
+      supabase
+        .from("contact_groups")
+        .select("contact_id, contacts(id, name, phone, email, deleted_at)")
+        .in("group_id", prepared.targetIds)
+        .range(from, to)
+    );
+    const contactMap = new Map<string, TargetContact>();
+    for (const rel of relations) {
+      const c = rel.contacts as (TargetContact & { deleted_at: string | null }) | null;
+      if (c && !c.deleted_at && !contactMap.has(c.id)) {
+        contactMap.set(c.id, { id: c.id, name: c.name, phone: c.phone, email: c.email ?? null });
       }
-      targetContacts = Array.from(contactMap.values());
-    } else if (broadcast.target_type === "tag") {
-      targetContacts = await fetchAllPages<{ id: string; name: string; phone: string; email?: string | null }>(
-        (from, to) =>
-          supabase
-            .from("contacts")
-            .select("id, name, phone, email")
-            .overlaps("tags", broadcast.target_ids)
-            .is("deleted_at", null)
-            .range(from, to)
-      );
     }
+    return Array.from(contactMap.values());
+  }
+
+  if (prepared.targetType === "tag") {
+    return fetchAllPages<TargetContact>((from, to) =>
+      supabase
+        .from("contacts")
+        .select("id, name, phone, email")
+        .overlaps("tags", prepared.targetIds)
+        .is("deleted_at", null)
+        .range(from, to)
+    );
+  }
+
+  return [];
+}
+
+/**
+ * Starts sending a broadcast: checks it, moves it from `fromStatus` to
+ * "sending" (one conditional update, so it can only start once) and records
+ * every recipient as pending. Messages are then sent by processBroadcast.
+ */
+export async function startBroadcast(
+  supabase: SupabaseClient,
+  broadcastId: string,
+  fromStatus: "draft" | "scheduled"
+): Promise<{ error?: string }> {
+  const { prepared, error } = await prepareBroadcast(supabase, broadcastId);
+  if (!prepared) return { error: error ?? "Broadcast not found." };
+
+  let contacts: TargetContact[];
+  try {
+    contacts = await resolveTargetContacts(supabase, prepared);
   } catch {
     return { error: "Failed to resolve recipient contacts." };
   }
-
-  if (targetContacts.length === 0) {
+  if (contacts.length === 0) {
     return { error: "No active recipient contacts found for this target." };
   }
 
-  // 4. Dispatch WhatsApp messages to each contact with per-recipient resolution
-  const results: BroadcastSendResult[] = [];
-
-  // Plain text only reaches contacts inside their 24-hour reply window; the
-  // rest are skipped (and reported) instead of being silently dropped by Meta.
-  const openWindowIds = metaTemplate
-    ? null
-    : await contactsWithOpenReplyWindow(supabase, targetContacts.map((c) => c.id));
-
-  for (const contact of targetContacts) {
-    if (openWindowIds && !openWindowIds.has(contact.id)) {
-      results.push({
-        contactId: contact.id,
-        name: contact.name,
-        phone: contact.phone,
-        success: false,
-        skipped: true,
-        error: "Not sent: no message from this contact in the last 24 hours. Use an approved Meta template.",
-      });
-      continue;
-    }
-
-    const normalizedPhone = normalizePhoneForWhatsApp(contact.phone);
-    if (!normalizedPhone) {
-      results.push({
-        contactId: contact.id,
-        name: contact.name,
-        phone: contact.phone,
-        success: false,
-        error: "Invalid phone number format",
-      });
-      continue;
-    }
-
-    let messageToSend: string;
-    let templateParams: string[] = [];
-    if (templateBody) {
-      const resolution = resolveBroadcastMessageForContact({
-        templateBody,
-        mappings: validatedMappings,
-        contact,
-      });
-
-      if (resolution.error || !resolution.message) {
-        results.push({
-          contactId: contact.id,
-          name: contact.name,
-          phone: normalizedPhone,
-          success: false,
-          error: resolution.error || "Failed to resolve template variables",
-        });
-        continue;
-      }
-      messageToSend = resolution.message;
-      templateParams = resolution.params;
-    } else {
-      messageToSend = broadcast.message_text;
-    }
-
-    try {
-      if (metaTemplate) {
-        await sendWhatsAppTemplateMessage({
-          to: normalizedPhone,
-          templateName: metaTemplate.name,
-          language: metaTemplate.language,
-          bodyParameters: templateParams,
-        });
-      } else {
-        await sendWhatsAppMessage({
-          to: normalizedPhone,
-          message: messageToSend,
-        });
-      }
-
-      // Log the outbound message so it shows up in WhatsApp History. A
-      // logging failure here doesn't affect the actual send, which already
-      // succeeded, so it's swallowed rather than marking the recipient failed.
-      const { error: logError } = await supabase.from("whatsapp_messages").insert({
-        contact_id: contact.id,
-        direction: "out",
-        message_text: messageToSend,
-        sent_at: new Date().toISOString(),
-      });
-      if (logError) {
-        console.error("Failed to log outbound broadcast message:", logError);
-      }
-
-      results.push({
-        contactId: contact.id,
-        name: contact.name,
-        phone: normalizedPhone,
-        success: true,
-      });
-    } catch (err: unknown) {
-      const errMsg =
-        err instanceof Error ? err.message : "Failed to send message";
-      results.push({
-        contactId: contact.id,
-        name: contact.name,
-        phone: normalizedPhone,
-        success: false,
-        error: errMsg,
-      });
-    }
+  const { data: claimed, error: claimError } = await supabase
+    .from("broadcasts")
+    .update({ status: "sending" })
+    .eq("id", broadcastId)
+    .eq("status", fromStatus)
+    .select("id");
+  if (claimError) {
+    return { error: claimError.message || "Could not start the broadcast." };
+  }
+  if (!claimed || claimed.length === 0) {
+    return { error: "This broadcast is already being sent or has been sent." };
   }
 
-  const sentCount = results.filter((r) => r.success).length;
-  const skippedCount = results.filter((r) => r.skipped).length;
-  const failedCount = results.filter((r) => !r.success && !r.skipped).length;
-
-  // 5. Update broadcast row status and timestamp
-  await supabase
-    .from("broadcasts")
-    .update({
-      status: "sent",
-      sent_at: new Date().toISOString(),
-    })
-    .eq("id", broadcastId);
-
-  // Saved separately so a missing send_summary column (migration not yet run)
-  // can never stop the status update above.
-  const summary: BroadcastSendSummary = {
-    total: results.length,
-    sent: sentCount,
-    skipped: skippedCount,
-    failed: failedCount,
-    skipped_names: results.filter((r) => r.skipped).slice(0, 100).map((r) => r.name),
-    failures: results
-      .filter((r) => !r.success && !r.skipped)
-      .slice(0, 100)
-      .map((r) => ({ name: r.name, error: r.error ?? "Unknown error" })),
-  };
-  const { error: summaryError } = await supabase
-    .from("broadcasts")
-    .update({ send_summary: summary })
-    .eq("id", broadcastId);
-  if (summaryError) {
-    console.error("[broadcast] Could not save send summary:", summaryError.message);
+  for (let i = 0; i < contacts.length; i += 500) {
+    const rows = contacts.slice(i, i + 500).map((c) => ({
+      broadcast_id: broadcastId,
+      contact_id: c.id,
+      name: c.name,
+      phone: c.phone,
+      email: c.email ?? null,
+    }));
+    const { error: insertError } = await supabase
+      .from("broadcast_recipients")
+      .upsert(rows, { onConflict: "broadcast_id,contact_id", ignoreDuplicates: true });
+    if (insertError) {
+      // Nothing has been sent yet: undo, so the broadcast can be tried again.
+      await supabase.from("broadcast_recipients").delete().eq("broadcast_id", broadcastId);
+      await supabase.from("broadcasts").update({ status: fromStatus }).eq("id", broadcastId);
+      return { error: `Could not prepare the recipients: ${insertError.message}` };
+    }
   }
 
   revalidatePath("/broadcasts");
-  revalidatePath(`/broadcasts/${broadcastId}`);
+  return {};
+}
 
-  return {
-    success: true,
-    total: results.length,
-    sentCount,
-    failedCount,
-    skippedCount,
-    results,
+/** Sends to one recipient and records the outcome on its row. */
+async function sendToRecipient(
+  supabase: SupabaseClient,
+  prepared: PreparedBroadcast,
+  recipient: RecipientRow,
+  openWindowIds: Set<string> | null
+): Promise<void> {
+  const finish = (status: "sent" | "skipped" | "failed", error: string | null = null) =>
+    supabase
+      .from("broadcast_recipients")
+      .update({
+        status,
+        error,
+        sent_at: status === "sent" ? new Date().toISOString() : null,
+      })
+      .eq("id", recipient.id);
+
+  // Plain text only reaches contacts inside their 24-hour reply window.
+  if (openWindowIds && !(recipient.contact_id && openWindowIds.has(recipient.contact_id))) {
+    await finish(
+      "skipped",
+      "Not sent: no message from this contact in the last 24 hours. Use an approved Meta template."
+    );
+    return;
+  }
+
+  const normalizedPhone = normalizePhoneForWhatsApp(recipient.phone ?? "");
+  if (!normalizedPhone) {
+    await finish("failed", "Invalid phone number format");
+    return;
+  }
+
+  let messageToSend = prepared.messageText;
+  let templateParams: string[] = [];
+  if (prepared.templateBody) {
+    const resolution = resolveBroadcastMessageForContact({
+      templateBody: prepared.templateBody,
+      mappings: prepared.mappings,
+      contact: {
+        name: recipient.name ?? "",
+        phone: recipient.phone ?? "",
+        email: recipient.email,
+      },
+    });
+    if (resolution.error || !resolution.message) {
+      await finish("failed", resolution.error || "Failed to resolve template variables");
+      return;
+    }
+    messageToSend = resolution.message;
+    templateParams = resolution.params;
+  }
+
+  try {
+    if (prepared.metaTemplate) {
+      await sendWhatsAppTemplateMessage({
+        to: normalizedPhone,
+        templateName: prepared.metaTemplate.name,
+        language: prepared.metaTemplate.language,
+        bodyParameters: templateParams,
+      });
+    } else {
+      await sendWhatsAppMessage({ to: normalizedPhone, message: messageToSend });
+    }
+  } catch (err: unknown) {
+    await finish("failed", err instanceof Error ? err.message : "Failed to send message");
+    return;
+  }
+
+  await finish("sent");
+
+  // Log it so it shows in WhatsApp History. The message already went out, so
+  // a logging failure doesn't count against the recipient.
+  if (recipient.contact_id) {
+    const { error: logError } = await supabase.from("whatsapp_messages").insert({
+      contact_id: recipient.contact_id,
+      direction: "out",
+      message_text: messageToSend,
+      sent_at: new Date().toISOString(),
+    });
+    if (logError) {
+      console.error("Failed to log outbound broadcast message:", logError);
+    }
+  }
+}
+
+async function countRecipients(
+  supabase: SupabaseClient,
+  broadcastId: string,
+  status: string
+): Promise<number> {
+  const { count } = await supabase
+    .from("broadcast_recipients")
+    .select("id", { count: "exact", head: true })
+    .eq("broadcast_id", broadcastId)
+    .eq("status", status);
+  return count ?? 0;
+}
+
+/** Current counts; marks the broadcast sent (with its summary) once all are done. */
+async function finalizeIfDone(
+  supabase: SupabaseClient,
+  broadcastId: string
+): Promise<BroadcastProgress> {
+  const [pending, sending, sent, skipped, failed] = await Promise.all(
+    ["pending", "sending", "sent", "skipped", "failed"].map((status) =>
+      countRecipients(supabase, broadcastId, status)
+    )
+  );
+  const remaining = pending + sending;
+  const progress: BroadcastProgress = {
+    total: remaining + sent + skipped + failed,
+    sent,
+    skipped,
+    failed,
+    remaining,
+    done: remaining === 0,
   };
+  if (!progress.done) return progress;
+
+  const [{ data: skippedRows }, { data: failedRows }] = await Promise.all([
+    supabase
+      .from("broadcast_recipients")
+      .select("name")
+      .eq("broadcast_id", broadcastId)
+      .eq("status", "skipped")
+      .order("name")
+      .limit(100),
+    supabase
+      .from("broadcast_recipients")
+      .select("name, error")
+      .eq("broadcast_id", broadcastId)
+      .eq("status", "failed")
+      .order("name")
+      .limit(100),
+  ]);
+
+  const summary: BroadcastSendSummary = {
+    total: progress.total,
+    sent,
+    skipped,
+    failed,
+    skipped_names: (skippedRows ?? []).map((r) => r.name ?? "Unknown"),
+    failures: (failedRows ?? []).map((r) => ({
+      name: r.name ?? "Unknown",
+      error: r.error ?? "Unknown error",
+    })),
+  };
+
+  await supabase
+    .from("broadcasts")
+    .update({ status: "sent", sent_at: new Date().toISOString(), send_summary: summary })
+    .eq("id", broadcastId)
+    .eq("status", "sending");
+
+  revalidatePath("/broadcasts");
+  revalidatePath(`/broadcasts/${broadcastId}`);
+  return progress;
+}
+
+/**
+ * Sends the next batches of a broadcast that is "sending", until every
+ * recipient is done or the time budget runs out. Safe to call from several
+ * places at once: each recipient is claimed by exactly one caller.
+ */
+export async function processBroadcast(
+  supabase: SupabaseClient,
+  broadcastId: string,
+  budgetMs: number
+): Promise<BroadcastProgress> {
+  const deadline = Date.now() + budgetMs - DEADLINE_MARGIN_MS;
+
+  // A recipient left "sending" by a run that was cut off may or may not have
+  // received the message; never resend, record it as failed instead.
+  await supabase
+    .from("broadcast_recipients")
+    .update({
+      status: "failed",
+      error: "Interrupted while sending; it may or may not have been delivered.",
+    })
+    .eq("broadcast_id", broadcastId)
+    .eq("status", "sending")
+    .lt("claimed_at", new Date(Date.now() - STALE_SENDING_MS).toISOString());
+
+  const { prepared, error } = await prepareBroadcast(supabase, broadcastId);
+  if (!prepared) {
+    // E.g. its template was deleted mid-send: the rest can't be sent.
+    await supabase
+      .from("broadcast_recipients")
+      .update({ status: "failed", error: error ?? "Broadcast could not be sent." })
+      .eq("broadcast_id", broadcastId)
+      .eq("status", "pending");
+    return finalizeIfDone(supabase, broadcastId);
+  }
+
+  while (Date.now() < deadline) {
+    const { data: batch, error: claimError } = await supabase.rpc("claim_broadcast_recipients", {
+      p_broadcast_id: broadcastId,
+      p_limit: BATCH_SIZE,
+    });
+    if (claimError) {
+      console.error("[broadcast] Could not claim recipients:", claimError.message);
+      break;
+    }
+    const recipients = (batch ?? []) as RecipientRow[];
+    if (recipients.length === 0) break;
+
+    const openWindowIds = prepared.metaTemplate
+      ? null
+      : await contactsWithOpenReplyWindow(
+          supabase,
+          recipients.map((r) => r.contact_id).filter((id): id is string => Boolean(id))
+        );
+
+    for (let i = 0; i < recipients.length; i += CONCURRENCY) {
+      await Promise.all(
+        recipients
+          .slice(i, i + CONCURRENCY)
+          .map((r) => sendToRecipient(supabase, prepared, r, openWindowIds))
+      );
+    }
+  }
+
+  return finalizeIfDone(supabase, broadcastId);
+}
+
+/** Starts a draft broadcast (if not already started) and sends as much as fits in one request. */
+export async function sendBroadcastBatch(
+  supabase: SupabaseClient,
+  broadcastId: string
+): Promise<SendBroadcastResult> {
+  if (!broadcastId) return { error: "Broadcast ID is required." };
+
+  const { data: broadcast } = await supabase
+    .from("broadcasts")
+    .select("status")
+    .eq("id", broadcastId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!broadcast) return { error: "Broadcast not found." };
+  if (broadcast.status === "sent") return { error: "This broadcast has already been sent." };
+  if (broadcast.status === "scheduled") {
+    return { error: "This broadcast is scheduled. Edit it to send it now instead." };
+  }
+
+  if (broadcast.status === "draft") {
+    const started = await startBroadcast(supabase, broadcastId, "draft");
+    if (started.error) return { error: started.error };
+  }
+
+  const progress = await processBroadcast(supabase, broadcastId, SEND_NOW_BUDGET_MS);
+  return { success: true, ...progress };
 }
 
 export interface ProcessedBroadcastResult {
@@ -547,6 +722,7 @@ export interface ProcessedBroadcastResult {
   sentCount?: number;
   failedCount?: number;
   skippedCount?: number;
+  remaining?: number;
 }
 
 export interface DispatchDueBroadcastsSummary {
@@ -556,15 +732,20 @@ export interface DispatchDueBroadcastsSummary {
   results: ProcessedBroadcastResult[];
 }
 
+/**
+ * Scheduler entry point (every 5 minutes): starts broadcasts whose time has
+ * come, then continues every broadcast that is still sending.
+ */
 export async function dispatchDueBroadcasts(): Promise<DispatchDueBroadcastsSummary> {
   const supabase = createServiceRoleClient();
+  const runDeadline = Date.now() + SCHEDULER_BUDGET_MS;
+  const results: ProcessedBroadcastResult[] = [];
 
-  const nowIso = new Date().toISOString();
   const { data: dueBroadcasts, error: fetchError } = await supabase
     .from("broadcasts")
-    .select("id, scheduled_for")
+    .select("id")
     .eq("status", "scheduled")
-    .lte("scheduled_for", nowIso)
+    .lte("scheduled_for", new Date().toISOString())
     .is("deleted_at", null)
     .order("scheduled_for", { ascending: true });
 
@@ -577,75 +758,44 @@ export async function dispatchDueBroadcasts(): Promise<DispatchDueBroadcastsSumm
     };
   }
 
-  if (!dueBroadcasts || dueBroadcasts.length === 0) {
-    return {
-      success: true,
-      processedCount: 0,
-      results: [],
-    };
+  for (const broadcast of dueBroadcasts ?? []) {
+    const started = await startBroadcast(supabase, broadcast.id, "scheduled");
+    // Errors here happen before anything is sent; the broadcast stays
+    // "scheduled" and a later run tries again.
+    if (started.error) {
+      results.push({ broadcastId: broadcast.id, success: false, error: started.error });
+    }
   }
 
-  const results: ProcessedBroadcastResult[] = [];
+  const { data: sending } = await supabase
+    .from("broadcasts")
+    .select("id")
+    .eq("status", "sending")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
 
-  for (const broadcast of dueBroadcasts) {
-    // Claim the broadcast before sending: flip it from "scheduled" to "sent"
-    // in one conditional update. If two runs overlap, or a run is cut off by a
-    // function time limit, the broadcast can never be sent twice.
-    const { data: claimed, error: claimError } = await supabase
-      .from("broadcasts")
-      .update({ status: "sent", sent_at: new Date().toISOString() })
-      .eq("id", broadcast.id)
-      .eq("status", "scheduled")
-      .select("id");
-
-    if (claimError || !claimed || claimed.length === 0) {
-      continue;
-    }
-
+  for (const broadcast of sending ?? []) {
+    const budget = runDeadline - Date.now();
+    if (budget <= DEADLINE_MARGIN_MS) break;
     try {
-      const res = await dispatchBroadcast(broadcast.id, supabase);
-      if ("error" in res && res.error) {
-        // These errors all happen before any message is sent, so put it back
-        // to "scheduled" (as before) and let a later run retry it.
-        await supabase
-          .from("broadcasts")
-          .update({ status: "scheduled", sent_at: null })
-          .eq("id", broadcast.id);
-        results.push({
-          broadcastId: broadcast.id,
-          success: false,
-          error: res.error,
-        });
-      } else if ("success" in res && res.success) {
-        results.push({
-          broadcastId: broadcast.id,
-          success: true,
-          total: res.total,
-          sentCount: res.sentCount,
-          failedCount: res.failedCount,
-          skippedCount: res.skippedCount,
-        });
-      } else {
-        results.push({
-          broadcastId: broadcast.id,
-          success: false,
-          error: "Unknown dispatch result",
-        });
-      }
+      const progress = await processBroadcast(supabase, broadcast.id, budget);
+      results.push({
+        broadcastId: broadcast.id,
+        success: true,
+        total: progress.total,
+        sentCount: progress.sent,
+        failedCount: progress.failed,
+        skippedCount: progress.skipped,
+        remaining: progress.remaining,
+      });
     } catch (err: unknown) {
-      const errMsg =
-        err instanceof Error ? err.message : "Failed to dispatch broadcast";
       results.push({
         broadcastId: broadcast.id,
         success: false,
-        error: errMsg,
+        error: err instanceof Error ? err.message : "Failed to dispatch broadcast",
       });
     }
   }
 
-  return {
-    success: true,
-    processedCount: results.length,
-    results,
-  };
+  return { success: true, processedCount: results.length, results };
 }

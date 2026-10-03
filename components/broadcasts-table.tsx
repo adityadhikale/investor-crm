@@ -68,6 +68,7 @@ export function BroadcastsTable({
 
   const [broadcastToSend, setBroadcastToSend] = useState<BroadcastData | null>(null);
   const [sending, setSending] = useState(false);
+  const [sendProgress, setSendProgress] = useState<{ done: number; total: number } | null>(null);
 
   const selectAllRef = useRef<HTMLInputElement>(null);
   const broadcastIds = broadcasts.map((b) => b.id);
@@ -153,35 +154,39 @@ export function BroadcastsTable({
   async function handleSendNow() {
     if (!broadcastToSend) return;
     setSending(true);
-    const result = await sendBroadcastNow(broadcastToSend.id);
-    setSending(false);
+    setSendProgress(null);
 
-    if (result.error) {
+    // Large broadcasts go out in batches: keep asking for the next batch until
+    // done. If this page is closed, the 5-minute scheduler finishes the rest.
+    let result = await sendBroadcastNow(broadcastToSend.id);
+    while (result.success && !result.done) {
+      setSendProgress({ done: result.total - result.remaining, total: result.total });
+      router.refresh();
+      result = await sendBroadcastNow(broadcastToSend.id);
+    }
+
+    setSending(false);
+    setSendProgress(null);
+
+    if (!result.success) {
       toast(result.error, "error");
       setBroadcastToSend(null);
+      router.refresh();
       return;
     }
 
-    const skipped = (result.results ?? []).filter((r) => r.skipped);
-    const skippedNote = skipped.length
-      ? ` Not sent to ${skipped.length} (no message from them in the last 24 hours, so plain text can't reach them; use an approved Meta template): ${skipped
-          .slice(0, 5)
-          .map((r) => r.name)
-          .join(", ")}${skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.`
-      : "";
+    const notes = [
+      result.skipped
+        ? `${result.skipped} skipped (no message from them in the last 24 hours, so plain text can't reach them; use an approved Meta template)`
+        : "",
+      result.failed ? `${result.failed} failed` : "",
+    ].filter(Boolean);
 
-    if (result.failedCount === 0 && skipped.length === 0) {
-      toast(`Sent to ${result.sentCount} of ${result.total} recipients`);
-    } else if (result.sentCount === 0) {
-      toast(
-        `Nothing was sent.${result.failedCount ? ` ${result.failedCount} failed.` : ""}${skippedNote}`,
-        "error"
-      );
+    if (notes.length === 0) {
+      toast(`Sent to ${result.sent} of ${result.total} recipients`);
     } else {
       toast(
-        `Sent to ${result.sentCount} of ${result.total} recipients.${
-          result.failedCount ? ` ${result.failedCount} failed.` : ""
-        }${skippedNote}`,
+        `Sent to ${result.sent} of ${result.total} recipients. ${notes.join("; ")}. Open the broadcast to see who.`,
         "error"
       );
     }
@@ -290,6 +295,8 @@ export function BroadcastsTable({
                               ? "bg-green-500/10 text-green-600 dark:text-green-400"
                               : broadcast.status === "scheduled"
                               ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                              : broadcast.status === "sending"
+                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                               : "bg-muted text-muted-foreground"
                           }`}
                         >
@@ -297,6 +304,11 @@ export function BroadcastsTable({
                         </span>
                         {broadcast.status === "sent" && (
                           <BroadcastSendCounts summary={broadcast.send_summary} />
+                        )}
+                        {broadcast.status === "sending" && (
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            Going out in batches
+                          </span>
                         )}
                         {broadcast.status === "scheduled" && broadcast.scheduled_for && (
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
@@ -323,12 +335,12 @@ export function BroadcastsTable({
                           label={`Actions for broadcast ${broadcast.id}`}
                         />
                         <DropdownMenuContent>
-                          {broadcast.status === "draft" && (
+                          {(broadcast.status === "draft" || broadcast.status === "sending") && (
                             <DropdownMenuItem
                               onClick={() => setBroadcastToSend(broadcast)}
                               className="font-medium text-primary focus:text-primary"
                             >
-                              Send Now
+                              {broadcast.status === "sending" ? "Continue sending now" : "Send Now"}
                             </DropdownMenuItem>
                           )}
                           {broadcast.status === "draft" || broadcast.status === "scheduled" ? (
@@ -377,15 +389,32 @@ export function BroadcastsTable({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send this broadcast now?</DialogTitle>
+            <DialogTitle>
+              {broadcastToSend?.status === "sending"
+                ? "Continue sending this broadcast?"
+                : "Send this broadcast now?"}
+            </DialogTitle>
             <DialogDescription>
-              {broadcastToSend && (
-                <>
-                  Send this broadcast to {getRecipientCountDescription(broadcastToSend)} now? This cannot be undone.
-                </>
-              )}
+              {broadcastToSend &&
+                (broadcastToSend.status === "sending" ? (
+                  <>
+                    It is already going out in batches and will finish on its own within a
+                    few minutes. Continue now to send the rest straight away. Nobody gets it twice.
+                  </>
+                ) : (
+                  <>
+                    Send this broadcast to {getRecipientCountDescription(broadcastToSend)} now? This cannot be undone.
+                  </>
+                ))}
             </DialogDescription>
           </DialogHeader>
+          {sending && (
+            <p className="text-sm text-muted-foreground">
+              {sendProgress
+                ? `Sending… ${sendProgress.done} of ${sendProgress.total} done. You can close this; it keeps going in the background.`
+                : "Sending…"}
+            </p>
+          )}
           <DialogFooter>
             <DialogClose render={<Button variant="outline" disabled={sending} />}>
               Cancel
