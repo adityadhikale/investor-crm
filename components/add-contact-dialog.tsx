@@ -37,14 +37,27 @@ function toISODateString(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
-export function AddContactDialog() {
+export function AddContactDialog({
+  initialName = "",
+  initialPhone = "",
+  triggerLabel = "+ Add Contact",
+  triggerClassName = "h-9 px-3 text-xs sm:h-10 sm:px-4 sm:text-sm",
+  onCreated,
+}: {
+  /** Pre-fill, e.g. when saving a number that messaged on WhatsApp. */
+  initialName?: string;
+  initialPhone?: string;
+  triggerLabel?: React.ReactNode;
+  triggerClassName?: string;
+  onCreated?: () => void;
+} = {}) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(initialName);
+  const [phone, setPhone] = useState(initialPhone);
   const [email, setEmail] = useState("");
 
   const [nameError, setNameError] = useState<string | null>(null);
@@ -58,8 +71,8 @@ export function AddContactDialog() {
   const [notes, setNotes] = useState("");
 
   function resetForm() {
-    setName("");
-    setPhone("");
+    setName(initialName);
+    setPhone(initialPhone);
     setEmail("");
     setNameError(null);
     setPhoneError(null);
@@ -99,10 +112,7 @@ export function AddContactDialog() {
       hasError = true;
     }
 
-    if (!trimmedEmail) {
-      setEmailError("Email is required.");
-      hasError = true;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       setEmailError("Please enter a valid email address.");
       hasError = true;
     }
@@ -129,13 +139,14 @@ export function AddContactDialog() {
     setSubmitting(false);
 
     if (result?.error) {
-      toast("Failed to create contact", "error");
+      toast(result.error || "Failed to create contact", "error");
       return;
     }
 
     resetForm();
     setOpen(false);
     toast("Contact created successfully");
+    onCreated?.();
   }
 
   return (
@@ -149,8 +160,8 @@ export function AddContactDialog() {
         }
       }}
     >
-      <SheetTrigger render={<Button className="h-9 px-3 text-xs sm:h-10 sm:px-4 sm:text-sm" />}>
-        + Add Contact
+      <SheetTrigger render={<Button className={triggerClassName} />}>
+        {triggerLabel}
       </SheetTrigger>
 
       {/* Right-side Sheet is intentionally preserved */}

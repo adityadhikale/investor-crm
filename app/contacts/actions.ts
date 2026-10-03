@@ -8,12 +8,14 @@ import {
   mimeTypeToWhatsAppMediaType,
   sendWhatsAppMediaMessage,
   sendWhatsAppMessage,
+  sendWhatsAppTemplateMessage,
   uploadWhatsAppMedia,
 } from "@/lib/whatsapp";
 import { uploadWhatsAppMediaToStorage } from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
+import { linkUnmatchedMessages } from "@/lib/link-messages";
 
 const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
 
@@ -73,13 +75,11 @@ export async function addContact(formData: FormData) {
     return { error: "Phone must contain 7-15 digits." };
   }
 
-  if (!emailRaw) {
-    return { error: "Email is required." };
-  }
-  if (!isValidEmail(emailRaw)) {
+  // Email is optional (e.g. saving someone who only messaged on WhatsApp).
+  if (emailRaw && !isValidEmail(emailRaw)) {
     return { error: "Please enter a valid email address." };
   }
-  const normalizedEmail = emailRaw.toLowerCase();
+  const normalizedEmail = emailRaw ? emailRaw.toLowerCase() : null;
 
   if (dateSaved && !isValidDate(dateSaved)) {
     return { error: "Date must use a valid YYYY-MM-DD date." };
@@ -96,7 +96,7 @@ export async function addContact(formData: FormData) {
     return { error: DUPLICATE_PHONE_ERROR };
   }
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from("contacts")
     .insert({
       name,
@@ -105,13 +105,18 @@ export async function addContact(formData: FormData) {
       tags,
       date_saved: dateSaved || null,
       notes: notes || null,
-    });
+    })
+    .select("id, phone")
+    .single();
 
   if (error) {
     return { error: error.message };
   }
 
+  await linkUnmatchedMessages(supabase, [inserted]);
+
   revalidatePath("/contacts");
+  revalidatePath("/unread-messages");
   return { success: true };
 }
 
@@ -144,13 +149,11 @@ export async function updateContact(id: string, formData: FormData) {
     return { error: "Phone must contain 7-15 digits." };
   }
 
-  if (!emailRaw) {
-    return { error: "Email is required." };
-  }
-  if (!isValidEmail(emailRaw)) {
+  // Email is optional (e.g. saving someone who only messaged on WhatsApp).
+  if (emailRaw && !isValidEmail(emailRaw)) {
     return { error: "Please enter a valid email address." };
   }
-  const normalizedEmail = emailRaw.toLowerCase();
+  const normalizedEmail = emailRaw ? emailRaw.toLowerCase() : null;
 
   if (dateSaved && !isValidDate(dateSaved)) {
     return { error: "Date must use a valid YYYY-MM-DD date." };
@@ -199,6 +202,9 @@ export async function updateContact(id: string, formData: FormData) {
   if (error) {
     return { error: "The contact could not be updated." };
   }
+
+  // A corrected phone number may match messages that arrived unmatched.
+  await linkUnmatchedMessages(supabase, [{ id, phone }]);
 
   revalidatePath("/contacts");
   return { success: true };
@@ -370,6 +376,30 @@ export type SendWhatsAppReplyResult =
   | { success: true }
   | { error: string };
 
+const REPLY_WINDOW_CLOSED_ERROR =
+  "This contact hasn't messaged you in the last 24 hours, so WhatsApp won't deliver a normal message. Send an approved Meta template instead.";
+
+/**
+ * Meta only delivers free-form messages within 24 hours of the contact's last
+ * message (its "customer service window"). Outside it they are silently dropped.
+ */
+async function isReplyWindowOpen(
+  supabase: NonNullable<Awaited<ReturnType<typeof requireActionAuth>>["supabase"]>,
+  contactId: string,
+): Promise<boolean> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count, error } = await supabase
+    .from("whatsapp_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("contact_id", contactId)
+    .eq("direction", "in")
+    .is("deleted_at", null)
+    .gte("sent_at", since);
+  // If the check itself fails, don't block the user; Meta stays the final judge.
+  if (error) return true;
+  return (count ?? 0) > 0;
+}
+
 /**
  * Sends a free-form WhatsApp reply to a contact directly from the CRM and
  * logs it in whatsapp_messages as an outbound message. Subject to Meta's
@@ -396,6 +426,10 @@ export async function sendWhatsAppReply(
     .maybeSingle();
 
   if (contactError || !contact) return { error: "The contact could not be found." };
+
+  if (!(await isReplyWindowOpen(supabase, normalizedContactId))) {
+    return { error: REPLY_WINDOW_CLOSED_ERROR };
+  }
 
   try {
     const response = await sendWhatsAppMessage({
@@ -428,6 +462,81 @@ export async function sendWhatsAppReply(
   revalidatePath(`/contacts/${normalizedContactId}`);
   revalidatePath(`/investors/${normalizedContactId}`);
 
+  return { success: true };
+}
+
+/**
+ * Sends a Meta-approved template to one contact. Unlike a plain reply, this
+ * works even when the contact hasn't messaged in the last 24 hours.
+ * `params` fills the body's {{1}}, {{2}}, ... in order.
+ */
+export async function sendWhatsAppTemplateToContact(
+  contactId: string,
+  templateId: string,
+  params: string[],
+): Promise<SendWhatsAppReplyResult> {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) return { error: "Unauthorized" };
+
+  const { data: contact } = await supabase
+    .from("contacts")
+    .select("id, phone")
+    .eq("id", contactId.trim())
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!contact) return { error: "The contact could not be found." };
+
+  const { data: template } = await supabase
+    .from("templates")
+    .select("name, language, body_text, meta_template_id, approved_at")
+    .eq("id", templateId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!template || !template.meta_template_id) {
+    return { error: "The template could not be found. Try \"Sync from Meta\" on the Templates page." };
+  }
+  if (!template.approved_at) {
+    return { error: `Template "${template.name}" is not approved by Meta yet.` };
+  }
+
+  const placeholders = Array.from(
+    new Set(Array.from((template.body_text as string).matchAll(/\{\{(\d+)\}\}/g), (m) => m[1])),
+  ).sort((a, b) => Number(a) - Number(b));
+  const values = params.map((value) => (value ?? "").trim());
+  if (values.length !== placeholders.length || values.some((value) => !value)) {
+    return { error: "Please fill in every variable before sending." };
+  }
+
+  try {
+    await sendWhatsAppTemplateMessage({
+      to: contact.phone,
+      templateName: template.name,
+      language: template.language,
+      bodyParameters: values,
+    });
+  } catch (err: unknown) {
+    return {
+      error: err instanceof Error ? err.message : "WhatsApp could not send this template.",
+    };
+  }
+
+  let sentText = template.body_text as string;
+  placeholders.forEach((ph, index) => {
+    sentText = sentText.replaceAll(`{{${ph}}}`, values[index]);
+  });
+
+  const { error: insertError } = await supabase.from("whatsapp_messages").insert({
+    contact_id: contact.id,
+    direction: "out",
+    message_text: sentText,
+    sent_at: new Date().toISOString(),
+  });
+  if (insertError) {
+    return { error: "Template sent, but could not be saved to WhatsApp history." };
+  }
+
+  revalidatePath(`/contacts/${contact.id}`);
+  revalidatePath(`/investors/${contact.id}`);
   return { success: true };
 }
 
@@ -472,6 +581,10 @@ export async function sendWhatsAppMediaReply(
     .maybeSingle();
 
   if (contactError || !contact) return { error: "The contact could not be found." };
+
+  if (!(await isReplyWindowOpen(supabase, normalizedContactId))) {
+    return { error: REPLY_WINDOW_CLOSED_ERROR };
+  }
 
   let fileBuffer: Buffer;
   try {
@@ -890,7 +1003,14 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
       notes: row.notes || null,
     }));
 
-    const { error: insertError } = await supabase.from("contacts").insert(batch);
+    const { data: insertedRows, error: insertError } = await supabase
+      .from("contacts")
+      .insert(batch)
+      .select("id, phone");
+
+    if (!insertError && insertedRows) {
+      await linkUnmatchedMessages(supabase, insertedRows);
+    }
 
     if (insertError) {
       revalidatePath("/contacts");

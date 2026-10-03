@@ -81,6 +81,8 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
 
   const isEditing = mode === "edit" && Boolean(existingTemplate);
   const isApproved = Boolean(existingTemplate?.approved_at);
+  // Templates synced from Meta are view-only: Meta sends exactly what it approved.
+  const isFromMeta = Boolean(existingTemplate?.meta_template_id);
 
   const [name, setName] = useState(() => existingTemplate?.name ?? "");
   const [category, setCategory] = useState<TemplateCategory>(() => {
@@ -211,7 +213,7 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                   <Clock className="size-3" />
-                  Draft
+                  {isFromMeta ? "Not approved by Meta" : "Draft"}
                 </span>
               )}
             </div>
@@ -228,6 +230,7 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
               id="template-name"
               placeholder="e.g. quarterly_investor_update"
               value={name}
+              disabled={isFromMeta}
               onChange={(e) => {
                 setName(e.target.value.toLowerCase());
                 if (nameError) setNameError(null);
@@ -247,6 +250,7 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
             </Label>
             <Select
               value={category}
+              disabled={isFromMeta}
               onValueChange={(val) => {
                 if (val) setCategory(val as TemplateCategory);
               }}
@@ -297,6 +301,7 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
             id="template-body"
             placeholder="Dear {{1}}, here is our quarterly update regarding {{2}}..."
             value={bodyText}
+            disabled={isFromMeta}
             onChange={(e) => {
               setBodyText(e.target.value);
               if (bodyError) setBodyError(null);
@@ -348,6 +353,7 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
                       <Input
                         placeholder={`Sample text for {{${ph}}}`}
                         value={variables[ph] ?? ""}
+                        disabled={isFromMeta}
                         onChange={(e) => handleVariableChange(ph, e.target.value)}
                         className="h-8 text-xs"
                       />
@@ -381,17 +387,19 @@ export function TemplateEditor({ mode, existingTemplate }: TemplateEditorProps) 
           type="button"
           onClick={() => router.push("/templates")}
         >
-          Cancel
+          {isFromMeta ? "Back" : "Cancel"}
         </Button>
-        <Button type="submit" disabled={submitting}>
-          {submitting
-            ? isEditing
-              ? "Saving..."
-              : "Creating..."
-            : isEditing
-            ? "Save Changes"
-            : "Create Template"}
-        </Button>
+        {!isFromMeta && (
+          <Button type="submit" disabled={submitting}>
+            {submitting
+              ? isEditing
+                ? "Saving..."
+                : "Creating..."
+              : isEditing
+              ? "Save Changes"
+              : "Create Template"}
+          </Button>
+        )}
       </div>
     </form>
   );

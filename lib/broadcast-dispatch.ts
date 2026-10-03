@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase-service";
 import {
   normalizePhoneForWhatsApp,
   sendWhatsAppMessage,
+  sendWhatsAppTemplateMessage,
 } from "@/lib/whatsapp";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 
@@ -13,6 +14,41 @@ export interface BroadcastSendResult {
   phone: string;
   success: boolean;
   error?: string;
+  /** Not attempted: plain text and the contact's 24-hour reply window is closed. */
+  skipped?: boolean;
+}
+
+const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Contacts (of the given ids) who messaged in the last 24 hours. Meta only
+ * delivers free-form text to them; to anyone else it is silently dropped.
+ * Returns null if the lookup fails, so sending isn't blocked by a CRM error.
+ */
+async function contactsWithOpenReplyWindow(
+  supabase: SupabaseClient,
+  contactIds: string[],
+): Promise<Set<string> | null> {
+  const since = new Date(Date.now() - REPLY_WINDOW_MS).toISOString();
+  const open = new Set<string>();
+  try {
+    for (let i = 0; i < contactIds.length; i += 200) {
+      const rows = await fetchAllPages<{ contact_id: string }>((from, to) =>
+        supabase
+          .from("whatsapp_messages")
+          .select("contact_id")
+          .in("contact_id", contactIds.slice(i, i + 200))
+          .eq("direction", "in")
+          .is("deleted_at", null)
+          .gte("sent_at", since)
+          .range(from, to)
+      );
+      for (const row of rows) open.add(row.contact_id);
+    }
+  } catch {
+    return null;
+  }
+  return open;
 }
 
 type SupportedContactField = "first_name" | "name" | "phone" | "email";
@@ -152,21 +188,25 @@ function resolveBroadcastMessageForContact({
   templateBody: string;
   mappings: Record<string, ValidatedMapping>;
   contact: { name: string; phone: string; email?: string | null };
-}): { message: string | null; error: string | null } {
+}): { message: string | null; params: string[]; error: string | null } {
   const placeholders = extractNumericPlaceholders(templateBody);
   let resolved = templateBody;
+  // Values in placeholder order, for sending a Meta template.
+  const params: string[] = [];
 
   for (const ph of placeholders) {
     const mapping = mappings[ph];
     if (!mapping) {
       return {
         message: null,
+        params: [],
         error: `Missing mapping for placeholder {{${ph}}}`,
       };
     }
 
     if (mapping.type === "static") {
       resolved = resolved.replaceAll(`{{${ph}}}`, mapping.value);
+      params.push(mapping.value);
     } else if (mapping.type === "contact_field") {
       const fieldVal = resolveContactField(contact, mapping.field);
       let finalVal: string | null = fieldVal;
@@ -177,16 +217,18 @@ function resolveBroadcastMessageForContact({
         } else {
           return {
             message: null,
+            params: [],
             error: `Contact is missing "${mapping.field}" with no fallback provided for {{${ph}}}`,
           };
         }
       }
 
       resolved = resolved.replaceAll(`{{${ph}}}`, finalVal);
+      params.push(finalVal);
     }
   }
 
-  return { message: resolved, error: null };
+  return { message: resolved, params, error: null };
 }
 
 export type SendBroadcastResult =
@@ -195,6 +237,8 @@ export type SendBroadcastResult =
       total: number;
       sentCount: number;
       failedCount: number;
+      /** Plain-text recipients skipped because their reply window is closed. */
+      skippedCount: number;
       results: BroadcastSendResult[];
       error?: undefined;
     }
@@ -204,6 +248,7 @@ export type SendBroadcastResult =
       total?: undefined;
       sentCount?: undefined;
       failedCount?: undefined;
+      skippedCount?: undefined;
       results?: undefined;
     };
 
@@ -230,17 +275,29 @@ export async function dispatchBroadcast(
   // 2. If template-based, load referenced template and validate variable mappings
   let templateBody: string | null = null;
   let validatedMappings: Record<string, ValidatedMapping> = {};
+  // Set when the template is synced from Meta: it is then sent as a real
+  // WhatsApp template (allowed outside the 24-hour window), not as text.
+  let metaTemplate: { name: string; language: string } | null = null;
 
   if (broadcast.template_id) {
     const { data: tmpl, error: tmplError } = await supabase
       .from("templates")
-      .select("id, body_text, deleted_at")
+      .select("id, name, language, body_text, meta_template_id, approved_at, deleted_at")
       .eq("id", broadcast.template_id)
       .is("deleted_at", null)
       .maybeSingle();
 
     if (tmplError || !tmpl || !tmpl.body_text) {
       return { error: "Referenced template not found or is inactive." };
+    }
+
+    if (tmpl.meta_template_id) {
+      if (!tmpl.approved_at) {
+        return {
+          error: `Template "${tmpl.name}" is not approved by Meta yet. Sync templates again once it is approved.`,
+        };
+      }
+      metaTemplate = { name: tmpl.name, language: tmpl.language };
     }
 
     const { error: mappingError, mappings } = validateTemplateMappingsForSend(
@@ -321,7 +378,25 @@ export async function dispatchBroadcast(
   // 4. Dispatch WhatsApp messages to each contact with per-recipient resolution
   const results: BroadcastSendResult[] = [];
 
+  // Plain text only reaches contacts inside their 24-hour reply window; the
+  // rest are skipped (and reported) instead of being silently dropped by Meta.
+  const openWindowIds = metaTemplate
+    ? null
+    : await contactsWithOpenReplyWindow(supabase, targetContacts.map((c) => c.id));
+
   for (const contact of targetContacts) {
+    if (openWindowIds && !openWindowIds.has(contact.id)) {
+      results.push({
+        contactId: contact.id,
+        name: contact.name,
+        phone: contact.phone,
+        success: false,
+        skipped: true,
+        error: "Not sent: no message from this contact in the last 24 hours. Use an approved Meta template.",
+      });
+      continue;
+    }
+
     const normalizedPhone = normalizePhoneForWhatsApp(contact.phone);
     if (!normalizedPhone) {
       results.push({
@@ -335,6 +410,7 @@ export async function dispatchBroadcast(
     }
 
     let messageToSend: string;
+    let templateParams: string[] = [];
     if (templateBody) {
       const resolution = resolveBroadcastMessageForContact({
         templateBody,
@@ -353,15 +429,25 @@ export async function dispatchBroadcast(
         continue;
       }
       messageToSend = resolution.message;
+      templateParams = resolution.params;
     } else {
       messageToSend = broadcast.message_text;
     }
 
     try {
-      await sendWhatsAppMessage({
-        to: normalizedPhone,
-        message: messageToSend,
-      });
+      if (metaTemplate) {
+        await sendWhatsAppTemplateMessage({
+          to: normalizedPhone,
+          templateName: metaTemplate.name,
+          language: metaTemplate.language,
+          bodyParameters: templateParams,
+        });
+      } else {
+        await sendWhatsAppMessage({
+          to: normalizedPhone,
+          message: messageToSend,
+        });
+      }
 
       // Log the outbound message so it shows up in WhatsApp History. A
       // logging failure here doesn't affect the actual send, which already
@@ -396,7 +482,8 @@ export async function dispatchBroadcast(
   }
 
   const sentCount = results.filter((r) => r.success).length;
-  const failedCount = results.filter((r) => !r.success).length;
+  const skippedCount = results.filter((r) => r.skipped).length;
+  const failedCount = results.filter((r) => !r.success && !r.skipped).length;
 
   // 5. Update broadcast row status and timestamp
   await supabase
@@ -414,6 +501,7 @@ export async function dispatchBroadcast(
     total: results.length,
     sentCount,
     failedCount,
+    skippedCount,
     results,
   };
 }
@@ -425,6 +513,7 @@ export interface ProcessedBroadcastResult {
   total?: number;
   sentCount?: number;
   failedCount?: number;
+  skippedCount?: number;
 }
 
 export interface DispatchDueBroadcastsSummary {
@@ -501,6 +590,7 @@ export async function dispatchDueBroadcasts(): Promise<DispatchDueBroadcastsSumm
           total: res.total,
           sentCount: res.sentCount,
           failedCount: res.failedCount,
+          skippedCount: res.skippedCount,
         });
       } else {
         results.push({

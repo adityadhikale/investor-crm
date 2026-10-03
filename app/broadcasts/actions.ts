@@ -24,6 +24,8 @@ export interface TemplateOption {
   body_text: string;
   variables: Record<string, string>;
   approved_at?: string | null;
+  /** Set when the template was synced from Meta and is sent as a real WhatsApp template. */
+  meta_template_id?: string | null;
 }
 
 export interface BroadcastData {

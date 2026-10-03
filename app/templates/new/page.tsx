@@ -26,6 +26,11 @@ export default async function NewTemplatePage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Compose a WhatsApp message template with dynamic variables.
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Templates created here stay in the CRM and are sent as plain text, so they only
+            reach contacts who messaged you in the last 24 hours. To reach anyone else, create
+            the template in Meta&apos;s WhatsApp Manager and click &quot;Sync from Meta&quot;.
+          </p>
         </div>
       </div>
 

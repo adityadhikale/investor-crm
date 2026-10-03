@@ -6,6 +6,8 @@ import {
   type UnreadConversation,
 } from "@/components/unread-messages-list";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
+import { getUnknownConversations } from "@/lib/unknown-numbers";
+import { UnknownNumbersList } from "@/components/unknown-numbers-list";
 
 export const metadata: Metadata = {
   title: "Unread Messages",
@@ -101,6 +103,8 @@ export default async function UnreadMessagesPage({
     ];
   });
 
+  const unknownConversations = page === 1 ? await getUnknownConversations(supabase) : [];
+
   return (
     <div className="flex min-h-0 flex-col p-4 sm:p-6 lg:p-8">
       <div>
@@ -111,6 +115,7 @@ export default async function UnreadMessagesPage({
       </div>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col">
+        <UnknownNumbersList conversations={unknownConversations} />
         <UnreadMessagesList
           key={page}
           conversations={conversations}

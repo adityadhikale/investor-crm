@@ -52,11 +52,13 @@ export default async function TemplateDetailPage({ params }: PageProps) {
                   : "bg-muted text-muted-foreground"
               }`}
             >
-              {isApproved ? "Approved" : "Draft"}
+              {isApproved ? "Approved" : typedTemplate.meta_template_id ? "Not approved by Meta" : "Draft"}
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Modify template content, category, and variable sample mappings.
+            {typedTemplate.meta_template_id
+              ? "This template comes from Meta and can't be changed here. Edit it in WhatsApp Manager, then click \"Sync from Meta\" on the Templates page."
+              : "Modify template content, category, and variable sample mappings."}
           </p>
         </div>
       </div>

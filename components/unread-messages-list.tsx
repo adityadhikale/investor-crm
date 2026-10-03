@@ -163,7 +163,7 @@ export function UnreadMessagesList({
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center text-muted-foreground">
                     <MessageCircle className="mx-auto mb-2 size-6 opacity-50" />
-                    You&apos;re all caught up. No unread messages.
+                    No saved contacts are waiting for a reply.
                   </td>
                 </tr>
               )}

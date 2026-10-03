@@ -131,6 +131,121 @@ export async function sendWhatsAppMessage({
   return data;
 }
 
+export interface SendWhatsAppTemplateMessageParams {
+  to: string;
+  templateName: string;
+  language: string;
+  /** Values for the body's {{1}}, {{2}}, ... placeholders, in order. */
+  bodyParameters: string[];
+}
+
+/**
+ * Sends a Meta-approved message template. Unlike free-form text, templates
+ * can be sent outside the 24-hour customer service window.
+ */
+export async function sendWhatsAppTemplateMessage({
+  to,
+  templateName,
+  language,
+  bodyParameters,
+}: SendWhatsAppTemplateMessageParams): Promise<WhatsAppApiResponse> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+  if (!token) throw new Error("WHATSAPP_ACCESS_TOKEN is not configured.");
+  if (!phoneNumberId) throw new Error("WHATSAPP_PHONE_NUMBER_ID is not configured.");
+
+  const normalizedTo = normalizePhoneForWhatsApp(to);
+  if (!normalizedTo) {
+    throw new Error(`Invalid recipient phone number: "${to}".`);
+  }
+
+  const template: Record<string, unknown> = {
+    name: templateName,
+    language: { code: language },
+  };
+  if (bodyParameters.length > 0) {
+    template.components = [
+      {
+        type: "body",
+        parameters: bodyParameters.map((text) => ({ type: "text", text })),
+      },
+    ];
+  }
+
+  const url = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: normalizedTo,
+      type: "template",
+      template,
+    }),
+  });
+
+  const data: WhatsAppApiResponse = await response.json();
+
+  if (!response.ok || data.error) {
+    const errMsg =
+      data.error?.message ||
+      `WhatsApp API responded with HTTP status ${response.status}`;
+    throw new Error(errMsg);
+  }
+
+  return data;
+}
+
+export interface MetaMessageTemplate {
+  id: string;
+  name: string;
+  status: string;
+  category: string;
+  language: string;
+  parameter_format?: string;
+  components?: Array<{
+    type: string;
+    format?: string;
+    text?: string;
+    buttons?: Array<{ type: string; text?: string; url?: string; example?: unknown }>;
+  }>;
+}
+
+/** Lists every message template on the WhatsApp Business Account. */
+export async function fetchWhatsAppMessageTemplates(): Promise<MetaMessageTemplate[]> {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const accountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+
+  if (!token) throw new Error("WHATSAPP_ACCESS_TOKEN is not configured.");
+  if (!accountId) throw new Error("WHATSAPP_BUSINESS_ACCOUNT_ID is not configured.");
+
+  const templates: MetaMessageTemplate[] = [];
+  let url: string | null =
+    `https://graph.facebook.com/v25.0/${accountId}/message_templates` +
+    `?fields=id,name,status,category,language,parameter_format,components&limit=100`;
+
+  while (url) {
+    const response: Response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error?.message ||
+          `WhatsApp API responded with HTTP status ${response.status}`,
+      );
+    }
+    templates.push(...((data.data ?? []) as MetaMessageTemplate[]));
+    url = data.paging?.next ?? null;
+  }
+
+  return templates;
+}
+
 export type WhatsAppMediaType = "image" | "video" | "audio" | "document";
 
 /**

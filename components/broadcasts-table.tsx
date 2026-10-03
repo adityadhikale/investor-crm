@@ -161,13 +161,26 @@ export function BroadcastsTable({
       return;
     }
 
-    if (result.failedCount === 0) {
+    const skipped = (result.results ?? []).filter((r) => r.skipped);
+    const skippedNote = skipped.length
+      ? ` Not sent to ${skipped.length} (no message from them in the last 24 hours, so plain text can't reach them; use an approved Meta template): ${skipped
+          .slice(0, 5)
+          .map((r) => r.name)
+          .join(", ")}${skipped.length > 5 ? ` and ${skipped.length - 5} more` : ""}.`
+      : "";
+
+    if (result.failedCount === 0 && skipped.length === 0) {
       toast(`Sent to ${result.sentCount} of ${result.total} recipients`);
     } else if (result.sentCount === 0) {
-      toast(`Failed to send to all ${result.total} recipients`, "error");
+      toast(
+        `Nothing was sent.${result.failedCount ? ` ${result.failedCount} failed.` : ""}${skippedNote}`,
+        "error"
+      );
     } else {
       toast(
-        `Sent to ${result.sentCount} of ${result.total} recipients (${result.failedCount} failed)`,
+        `Sent to ${result.sentCount} of ${result.total} recipients.${
+          result.failedCount ? ` ${result.failedCount} failed.` : ""
+        }${skippedNote}`,
         "error"
       );
     }

@@ -2,16 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActionAuth } from "@/lib/auth";
+import { getUnknownConversations } from "@/lib/unknown-numbers";
 
 export async function getUnreadConversationCount(): Promise<number> {
   const { supabase, error: authError } = await requireActionAuth();
   if (authError || !supabase) return 0;
 
-  const { count, error } = await supabase
-    .rpc("unread_conversations", {}, { count: "exact", head: true });
+  const [{ count, error }, unknown] = await Promise.all([
+    supabase.rpc("unread_conversations", {}, { count: "exact", head: true }),
+    getUnknownConversations(supabase),
+  ]);
 
-  if (error) return 0;
-  return count ?? 0;
+  // Numbers that messaged but aren't saved as contacts count too.
+  return (error ? 0 : count ?? 0) + unknown.length;
 }
 
 export async function markConversationRead(contactId: string) {

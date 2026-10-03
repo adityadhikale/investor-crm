@@ -21,6 +21,7 @@ import {
   getMeetingNotes,
   sendWhatsAppMediaReply,
   sendWhatsAppReply,
+  sendWhatsAppTemplateToContact,
   transcribeVoiceNote,
   updateMeetingNote,
   type MeetingNote,
@@ -214,6 +215,15 @@ export function InvestorDetail({
     } finally {
       setIsSendingReply(false);
     }
+  }
+
+  async function handleSendTemplate(templateId: string, params: string[]) {
+    const result = await sendWhatsAppTemplateToContact(contact.id, templateId, params);
+    if ("error" in result && result.error) {
+      return { error: result.error };
+    }
+    toast("Template sent.");
+    router.refresh();
   }
 
   const [isSendingMedia, setIsSendingMedia] = useState(false);
@@ -792,6 +802,8 @@ export function InvestorDetail({
           isSendingMedia={isSendingMedia}
           onOpened={() => void markReadAndNotify(contact.id)}
           unreadCount={initialUnreadCount}
+          onSendTemplate={handleSendTemplate}
+          contactName={contact.name}
           className="mb-8"
         />
       </div>

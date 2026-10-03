@@ -118,7 +118,7 @@ export function TemplatesTable({ templates }: TemplatesTableProps) {
                         ) : (
                           <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                             <Clock className="size-3" />
-                            Draft
+                            {template.meta_template_id ? "Not approved by Meta" : "Draft"}
                           </span>
                         )}
                       </td>

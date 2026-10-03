@@ -248,6 +248,12 @@ export async function POST(request: Request) {
           const direction = isEcho ? ("out" as const) : ("in" as const);
           const targetPhone = isEcho ? msg.to : msg.from;
 
+          // The sender's WhatsApp profile name, used to pre-fill "Save contact".
+          const profileName = isEcho
+            ? undefined
+            : value.contacts?.find((c) => c.wa_id === msg.from)?.profile?.name ??
+              value.contacts?.[0]?.profile?.name;
+
           await processSingleMessage({
             messageId: msg.id,
             phone: targetPhone,
@@ -255,6 +261,7 @@ export async function POST(request: Request) {
             type: msg.type,
             msgData: msg,
             direction,
+            profileName,
           });
 
           processedCount++;
@@ -353,6 +360,7 @@ interface ProcessMessageArgs {
   type?: string;
   msgData: MetaMessageBase;
   direction: "in" | "out";
+  profileName?: string;
 }
 
 async function processSingleMessage({
@@ -362,6 +370,7 @@ async function processSingleMessage({
   type,
   msgData,
   direction,
+  profileName,
 }: ProcessMessageArgs) {
   // Application-level deduplication: check in-memory cache of recent wamid
   if (messageId && markAndCheckDuplicateId(messageId)) {
@@ -480,17 +489,33 @@ async function processSingleMessage({
     return;
   }
 
-  // Insert into whatsapp_messages
-  const { error: insertError } = await supabase
-    .from("whatsapp_messages")
-    .insert({
-      contact_id: contactId,
-      direction,
-      message_text: messageText,
-      media_url: mediaUrl,
-      sent_at: sentAt,
-      deleted_at: null,
-    });
+  // Insert into whatsapp_messages. The number is kept so a message from an
+  // unknown number can be linked once that number is saved as a contact.
+  const row = {
+    contact_id: contactId,
+    direction,
+    message_text: messageText,
+    media_url: mediaUrl,
+    sent_at: sentAt,
+    deleted_at: null,
+    phone: phone ? normalizeToLocalPhone(String(phone)) : null,
+    profile_name: profileName?.trim() || null,
+  };
+  let { error: insertError } = await supabase.from("whatsapp_messages").insert(row);
+
+  // Until the add_phone_to_whatsapp_messages migration is applied these
+  // columns may not exist; drop only the missing one rather than losing the message.
+  if (insertError && /profile_name/i.test(insertError.message)) {
+    const { profile_name: _profileName, ...rowWithoutName } = row;
+    void _profileName;
+    ({ error: insertError } = await supabase.from("whatsapp_messages").insert(rowWithoutName));
+  }
+  if (insertError && /phone/i.test(insertError.message)) {
+    const { phone: _phone, profile_name: _profileName, ...rowWithoutNew } = row;
+    void _phone;
+    void _profileName;
+    ({ error: insertError } = await supabase.from("whatsapp_messages").insert(rowWithoutNew));
+  }
 
   if (insertError) {
     console.error(

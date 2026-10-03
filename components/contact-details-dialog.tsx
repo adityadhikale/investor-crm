@@ -232,10 +232,7 @@ export function ContactDetailsDialog({
       setError("Enter a valid phone number (7-15 digits).");
       return;
     }
-    if (!trimmedEmail) {
-      setError("Email is required.");
-      return;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       setError("Please enter a valid email address.");
       return;
     }

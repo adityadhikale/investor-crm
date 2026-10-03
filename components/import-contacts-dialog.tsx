@@ -10,6 +10,13 @@ import {
   type ImportDuplicateRow,
 } from "@/app/contacts/actions";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/components/toast-provider";
 import {
   Sheet,
@@ -519,13 +526,23 @@ export function ImportContactsDialog() {
                           {csv.headers.map((header, columnIndex) => (
                             <th key={`${header}-${columnIndex}`} className="min-w-52 border-r px-4 py-3 align-top last:border-r-0">
                               <label className="block text-xs font-medium text-muted-foreground">{header}</label>
-                              <select value={mapping[columnIndex] ?? "skip"} onChange={(event) => handleMappingChange(columnIndex, event.target.value as ContactField | "skip")} className="mt-2 h-9 w-full rounded-md border border-input bg-background px-2 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                                <option value="skip">Skip</option>
-                                {CONTACT_FIELDS.map((field) => {
-                                  const usedByOtherColumn = Object.entries(mapping).some(([index, value]) => Number(index) !== columnIndex && value === field.value);
-                                  return <option key={field.value} value={field.value} disabled={usedByOtherColumn}>{field.label}{field.required ? " *" : ""}</option>;
-                                })}
-                              </select>
+                              <Select value={mapping[columnIndex] ?? "skip"} onValueChange={(val) => { if (val) handleMappingChange(columnIndex, val as ContactField | "skip"); }}>
+                                <SelectTrigger className="mt-2 h-9 w-full text-sm font-medium" aria-label={`Field for column ${header}`}>
+                                  <SelectValue>
+                                    {(value: string) => {
+                                      const field = CONTACT_FIELDS.find((f) => f.value === value);
+                                      return field ? `${field.label}${field.required ? " *" : ""}` : "Skip";
+                                    }}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="skip">Skip</SelectItem>
+                                  {CONTACT_FIELDS.map((field) => {
+                                    const usedByOtherColumn = Object.entries(mapping).some(([index, value]) => Number(index) !== columnIndex && value === field.value);
+                                    return <SelectItem key={field.value} value={field.value} disabled={usedByOtherColumn}>{field.label}{field.required ? " *" : ""}</SelectItem>;
+                                  })}
+                                </SelectContent>
+                              </Select>
                             </th>
                           ))}
                           <th className="min-w-64 px-4 py-3 align-top">Validation</th>

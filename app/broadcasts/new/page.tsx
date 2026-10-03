@@ -28,7 +28,7 @@ export default async function NewBroadcastPage() {
       .order("name", { ascending: true }),
     supabase
       .from("templates")
-      .select("id, name, category, body_text, variables, approved_at")
+      .select("id, name, category, body_text, variables, approved_at, meta_template_id")
       .is("deleted_at", null)
       .order("name", { ascending: true }),
   ]);

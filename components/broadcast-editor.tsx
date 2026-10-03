@@ -10,10 +10,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const MAPPING_SOURCE_LABELS: Record<string, string> = {
+  first_name: "First Name",
+  name: "Full Name",
+  phone: "Phone",
+  email: "Email",
+  static: "Custom Text",
+};
 import { TAG_OPTIONS } from "@/components/add-contact-dialog";
 import {
   createBroadcastDraft,
@@ -268,6 +278,7 @@ export function BroadcastEditor({
   const selectedTemplate = useMemo(() => {
     return templates.find((t) => t.id === selectedTemplateId) ?? null;
   }, [templates, selectedTemplateId]);
+  const isMetaTemplate = Boolean(selectedTemplate?.meta_template_id);
 
   // Detected placeholders in current template source body
   const detectedPlaceholders = useMemo(() => {
@@ -647,6 +658,12 @@ export function BroadcastEditor({
         setScheduleError("Scheduled time must be in the future.");
         return;
       }
+      if (isMetaTemplate && !selectedTemplate?.approved_at) {
+        setMessageError(
+          "This template is not approved by Meta yet, so it can't be scheduled. Save it as a draft instead."
+        );
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -754,7 +771,15 @@ export function BroadcastEditor({
                         ? "No templates available"
                         : "-- Use a Template (Optional) --"
                     }
-                  />
+                  >
+                    {/* Show the template's name, not its ID. */}
+                    {(value: string | null) =>
+                      templates.find((t) => t.id === value)?.name ??
+                      (templates.length === 0
+                        ? "No templates available"
+                        : "-- Use a Template (Optional) --")
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">
@@ -765,7 +790,13 @@ export function BroadcastEditor({
                   {templates.map((tmpl) => (
                     <SelectItem key={tmpl.id} value={tmpl.id}>
                       {tmpl.name} ({tmpl.category || "General"})
-                      {tmpl.approved_at ? " ✓" : " (Draft)"}
+                      {tmpl.meta_template_id
+                        ? tmpl.approved_at
+                          ? " ✓ Meta approved"
+                          : " (Not approved by Meta yet)"
+                        : tmpl.approved_at
+                        ? " ✓"
+                        : " (Draft)"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -802,6 +833,15 @@ export function BroadcastEditor({
               {detectedPlaceholders.length} variable{detectedPlaceholders.length === 1 ? "" : "s"}
             </span>
           </div>
+        )}
+        {!isReadOnly && (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            {isMetaTemplate && selectedTemplate
+              ? selectedTemplate.approved_at
+                ? "Meta-approved template: reaches contacts even if they haven't messaged you in the last 24 hours. It is sent exactly as approved; only the variables change per contact."
+                : "This template is not approved by Meta yet. You can save a draft, but it can't be sent or scheduled until Meta approves it and you sync templates again."
+              : `${selectedTemplate ? "CRM template" : "Custom message"}: sent as plain text, so only contacts who messaged you in the last 24 hours receive it. Everyone else is skipped and listed after sending; use an approved Meta template to reach them.`}
+          </p>
         )}
 
         {/* Dynamic Variable Mapping if template has placeholders */}
@@ -851,13 +891,13 @@ export function BroadcastEditor({
 
                     {/* Source Selector: Contact Field vs Custom Text */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <select
+                      <Select
                         value={
                           mapping.type === "static" ? "static" : mapping.field
                         }
                         disabled={isReadOnly}
-                        onChange={(e) => {
-                          const val = e.target.value;
+                        onValueChange={(val) => {
+                          if (!val) return;
                           if (val === "static") {
                             handleMappingTypeChange(ph, "static");
                           } else {
@@ -870,19 +910,29 @@ export function BroadcastEditor({
                             );
                           }
                         }}
-                        className="h-8 rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-xs focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring outline-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-                        aria-label={`Source for variable ${ph}`}
                       >
-                        <optgroup label="Contact Field">
-                          <option value="first_name">First Name</option>
-                          <option value="name">Full Name</option>
-                          <option value="phone">Phone</option>
-                          <option value="email">Email</option>
-                        </optgroup>
-                        <optgroup label="Custom">
-                          <option value="static">Custom Text</option>
-                        </optgroup>
-                      </select>
+                        <SelectTrigger
+                          className="h-8 w-[140px] text-xs font-medium"
+                          aria-label={`Source for variable ${ph}`}
+                        >
+                          <SelectValue>
+                            {(value: string) => MAPPING_SOURCE_LABELS[value] ?? value}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectLabel>Contact field</SelectLabel>
+                            <SelectItem value="first_name">First Name</SelectItem>
+                            <SelectItem value="name">Full Name</SelectItem>
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="email">Email</SelectItem>
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel>Custom</SelectLabel>
+                            <SelectItem value="static">Custom Text</SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     {/* Input field based on type */}
@@ -932,7 +982,9 @@ export function BroadcastEditor({
             <Label htmlFor="broadcast-message">Message text</Label>
             {selectedTemplate && (
               <span className="text-[11px] text-muted-foreground">
-                You can make additional custom edits directly below.
+                {isMetaTemplate
+                  ? "Preview only: Meta templates can't be edited here."
+                  : "You can make additional custom edits directly below."}
               </span>
             )}
           </div>
@@ -940,7 +992,7 @@ export function BroadcastEditor({
             id="broadcast-message"
             placeholder="Type your broadcast message here..."
             value={messageText}
-            disabled={isReadOnly}
+            disabled={isReadOnly || isMetaTemplate}
             onChange={(e) => {
               setMessageText(e.target.value);
               if (messageError) setMessageError(null);
@@ -1363,56 +1415,64 @@ export function BroadcastEditor({
                           </div>
                           <div className="flex items-center gap-1.5">
                             {/* Hour Selector */}
-                            <select
+                            <Select
                               value={selectedHour}
-                              onChange={(e) => {
-                                setSelectedHour(e.target.value);
+                              onValueChange={(val) => {
+                                if (!val) return;
+                                setSelectedHour(val);
                                 if (scheduleError) setScheduleError(null);
                               }}
-                              aria-label="Hour"
-                              className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-xs focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring outline-none cursor-pointer"
                             >
-                              {Array.from({ length: 12 }, (_, i) => {
-                                const h = String(i + 1).padStart(2, "0");
-                                return (
-                                  <option key={h} value={h}>
-                                    {h}
-                                  </option>
-                                );
-                              })}
-                            </select>
+                              <SelectTrigger className="h-8 w-[62px] text-xs font-medium" aria-label="Hour">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="min-w-[62px]">
+                                {Array.from({ length: 12 }, (_, i) => {
+                                  const h = String(i + 1).padStart(2, "0");
+                                  return (
+                                    <SelectItem key={h} value={h}>
+                                      {h}
+                                    </SelectItem>
+                                  );
+                                })}
+                              </SelectContent>
+                            </Select>
 
                             <span className="text-xs font-semibold text-muted-foreground">:</span>
 
                             {/* Minute Selector */}
-                            <select
+                            <Select
                               value={selectedMinute}
-                              onChange={(e) => {
-                                setSelectedMinute(e.target.value);
+                              onValueChange={(val) => {
+                                if (!val) return;
+                                setSelectedMinute(val);
                                 if (scheduleError) setScheduleError(null);
                               }}
-                              aria-label="Minute"
-                              className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-xs focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring outline-none cursor-pointer"
                             >
-                              {[
-                                "00",
-                                "05",
-                                "10",
-                                "15",
-                                "20",
-                                "25",
-                                "30",
-                                "35",
-                                "40",
-                                "45",
-                                "50",
-                                "55",
-                              ].map((m) => (
-                                <option key={m} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger className="h-8 w-[62px] text-xs font-medium" aria-label="Minute">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="min-w-[62px]">
+                                {[
+                                  "00",
+                                  "05",
+                                  "10",
+                                  "15",
+                                  "20",
+                                  "25",
+                                  "30",
+                                  "35",
+                                  "40",
+                                  "45",
+                                  "50",
+                                  "55",
+                                ].map((m) => (
+                                  <SelectItem key={m} value={m}>
+                                    {m}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
 
                             {/* AM/PM Toggle */}
                             <div className="flex rounded-md border border-input bg-muted/60 p-0.5 text-xs">

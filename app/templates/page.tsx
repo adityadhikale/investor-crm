@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import type { TemplateData } from "@/app/templates/actions";
 import { PaginationControls } from "@/components/pagination-controls";
 import { TemplatesTable } from "@/components/templates-table";
+import { SyncMetaTemplatesButton } from "@/components/sync-meta-templates-button";
 import { Button } from "@/components/ui/button";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 
@@ -59,11 +60,14 @@ export default async function TemplatesPage({
             Create, view, and manage WhatsApp message templates.
           </p>
         </div>
-        <Link href="/templates/new">
-          <Button className="h-9 px-3 text-xs sm:h-10 sm:px-4 sm:text-sm">
-            + New Template
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <SyncMetaTemplatesButton />
+          <Link href="/templates/new">
+            <Button className="h-9 px-3 text-xs sm:h-10 sm:px-4 sm:text-sm">
+              + New Template
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 flex min-h-0 flex-1 flex-col">

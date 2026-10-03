@@ -2,6 +2,7 @@
 
 import { requireActionAuth } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings";
+import { getUnknownConversations } from "@/lib/unknown-numbers";
 
 export type NotificationItem = {
   id: string;
@@ -114,6 +115,27 @@ export async function getNotifications(): Promise<NotificationsResult> {
     });
   }
 
+  // Numbers that messaged but aren't saved as contacts.
+  const unknown = settings.notifyMessages ? await getUnknownConversations(supabase) : [];
+  for (const conversation of unknown.slice(0, MAX_PER_KIND)) {
+    const who = conversation.profileName
+      ? `${conversation.profileName} (${conversation.phone})`
+      : conversation.phone;
+    const preview =
+      conversation.lastMessageText?.trim() ||
+      (conversation.hasMedia ? "[Media message]" : "New message");
+    items.push({
+      id: `unknown-${conversation.phone}`,
+      kind: "message",
+      title: `Unsaved number ${who} sent ${
+        conversation.messageCount > 1 ? `${conversation.messageCount} messages` : "a message"
+      }`,
+      description: truncate(preview),
+      href: "/unread-messages",
+      at: conversation.lastMessageAt,
+    });
+  }
+
   for (const followUp of followUps) {
     const name = contactNames.get(followUp.contact_id as string);
     if (!name) continue;
@@ -146,6 +168,9 @@ export async function getNotifications(): Promise<NotificationsResult> {
 
   return {
     items,
-    badgeCount: (unreadResult.error ? 0 : unreadResult.count ?? 0) + (followUpsResult.count ?? 0),
+    badgeCount:
+      (unreadResult.error ? 0 : unreadResult.count ?? 0) +
+      unknown.length +
+      (followUpsResult.count ?? 0),
   };
 }
