@@ -788,7 +788,12 @@ export function BroadcastEditor({
                       : "-- Use a Template (Optional) --"}
                   </SelectItem>
                   {templates.map((tmpl) => (
-                    <SelectItem key={tmpl.id} value={tmpl.id}>
+                    <SelectItem
+                      key={tmpl.id}
+                      value={tmpl.id}
+                      // A Meta template can only be used once Meta has approved it.
+                      disabled={Boolean(tmpl.meta_template_id && !tmpl.approved_at)}
+                    >
                       {tmpl.name} ({tmpl.category || "General"})
                       {tmpl.meta_template_id
                         ? tmpl.approved_at
@@ -839,7 +844,7 @@ export function BroadcastEditor({
             {isMetaTemplate && selectedTemplate
               ? selectedTemplate.approved_at
                 ? "Meta-approved template: reaches contacts even if they haven't messaged you in the last 24 hours. It is sent exactly as approved; only the variables change per contact."
-                : "This template is not approved by Meta yet. You can save a draft, but it can't be sent or scheduled until Meta approves it and you sync templates again."
+                : "This template isn't approved by Meta yet, so this broadcast can't be sent or scheduled. Choose another template, or wait for approval and click \"Sync from Meta\" on the Templates page."
               : `${selectedTemplate ? "CRM template" : "Custom message"}: sent as plain text, so only contacts who messaged you in the last 24 hours receive it. Everyone else is skipped and listed after sending; use an approved Meta template to reach them.`}
           </p>
         )}

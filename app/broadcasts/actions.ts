@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActionAuth } from "@/lib/auth";
-import { dispatchBroadcast, type SendBroadcastResult } from "@/lib/broadcast-dispatch";
+import {
+  dispatchBroadcast,
+  type BroadcastSendSummary,
+  type SendBroadcastResult,
+} from "@/lib/broadcast-dispatch";
 
 export type TargetType = "group" | "tag" | "manual";
 
@@ -39,6 +43,8 @@ export interface BroadcastData {
   sent_at?: string | null;
   template_id?: string | null;
   variable_mappings?: Record<string, unknown> | null;
+  /** Who it reached, was skipped or failed; set once sent (see lib/broadcast-dispatch). */
+  send_summary?: BroadcastSendSummary | null;
 }
 
 export interface CreateBroadcastDraftInput {

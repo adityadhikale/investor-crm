@@ -18,6 +18,17 @@ export interface BroadcastSendResult {
   skipped?: boolean;
 }
 
+/** Stored on broadcasts.send_summary once a broadcast has been sent. */
+export interface BroadcastSendSummary {
+  total: number;
+  sent: number;
+  /** Plain text not sent because the contact's 24-hour reply window was closed. */
+  skipped: number;
+  failed: number;
+  skipped_names: string[];
+  failures: Array<{ name: string; error: string }>;
+}
+
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -494,7 +505,29 @@ export async function dispatchBroadcast(
     })
     .eq("id", broadcastId);
 
+  // Saved separately so a missing send_summary column (migration not yet run)
+  // can never stop the status update above.
+  const summary: BroadcastSendSummary = {
+    total: results.length,
+    sent: sentCount,
+    skipped: skippedCount,
+    failed: failedCount,
+    skipped_names: results.filter((r) => r.skipped).slice(0, 100).map((r) => r.name),
+    failures: results
+      .filter((r) => !r.success && !r.skipped)
+      .slice(0, 100)
+      .map((r) => ({ name: r.name, error: r.error ?? "Unknown error" })),
+  };
+  const { error: summaryError } = await supabase
+    .from("broadcasts")
+    .update({ send_summary: summary })
+    .eq("id", broadcastId);
+  if (summaryError) {
+    console.error("[broadcast] Could not save send summary:", summaryError.message);
+  }
+
   revalidatePath("/broadcasts");
+  revalidatePath(`/broadcasts/${broadcastId}`);
 
   return {
     success: true,

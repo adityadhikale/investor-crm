@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { BroadcastEditor } from "@/components/broadcast-editor";
+import { BroadcastSendReport } from "@/components/broadcast-send-summary";
 import type {
   GroupOption,
   ContactOption,
@@ -27,7 +28,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
     supabase
       .from("broadcasts")
       .select(
-        "id, message_text, target_type, target_ids, status, scheduled_for, sent_at, created_at, template_id, variable_mappings"
+        "*"
       )
       .eq("id", id)
       .is("deleted_at", null)
@@ -94,6 +95,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
       </div>
 
       <div className="mt-6 max-w-4xl">
+        {isSent && <BroadcastSendReport summary={broadcast.send_summary} />}
         <BroadcastEditor
           mode="edit"
           existingBroadcast={broadcast}

@@ -34,7 +34,7 @@ export default async function BroadcastsPage({
     : await supabase
         .from("broadcasts")
         .select(
-          "id, message_text, target_type, target_ids, status, scheduled_for, sent_at, created_at"
+          "*"
         )
         .is("deleted_at", null)
         .order("created_at", { ascending: false })

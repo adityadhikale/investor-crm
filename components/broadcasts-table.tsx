@@ -11,6 +11,7 @@ import {
   type BroadcastData,
 } from "@/app/broadcasts/actions";
 import { Button } from "@/components/ui/button";
+import { BroadcastSendCounts } from "@/components/broadcast-send-summary";
 import { useToast } from "@/components/toast-provider";
 import {
   Dialog,
@@ -294,6 +295,9 @@ export function BroadcastsTable({
                         >
                           {broadcast.status}
                         </span>
+                        {broadcast.status === "sent" && (
+                          <BroadcastSendCounts summary={broadcast.send_summary} />
+                        )}
                         {broadcast.status === "scheduled" && broadcast.scheduled_for && (
                           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                             <Clock className="size-3 text-blue-500/70" />
