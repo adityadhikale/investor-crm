@@ -16,6 +16,7 @@ import { SendTestReminderButton } from "@/components/send-test-reminder-button";
 import { useTheme } from "@/components/theme-provider";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
+import { StoredBackups } from "@/components/stored-backups";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -245,6 +246,7 @@ export function SettingsPanel({
               Download
             </Button>
           </div>
+          <StoredBackups />
         </SettingsCard>
       </div>
 

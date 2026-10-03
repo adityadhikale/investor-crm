@@ -224,7 +224,8 @@ export function ContactsTable({
               Delete {selectedIds.size} contact{selectedIds.size === 1 ? "" : "s"}?
             </DialogTitle>
             <DialogDescription>
-              This will permanently remove the selected contacts. This action cannot be undone.
+              The selected contacts will be removed from the CRM. They&apos;re kept in the
+              database (with their notes, follow-ups and messages) and can be restored if needed.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

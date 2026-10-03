@@ -833,19 +833,16 @@ export async function deleteContacts(ids: string[]) {
   if (!contactIds.length) {
     return { error: "No contacts were selected." };
   }
-  const { error: relationError } = await supabase
-    .from("contact_groups")
-    .delete()
-    .in("contact_id", contactIds);
 
-  if (relationError) {
-    return { error: "The selected contacts could not be deleted." };
-  }
-
+  // Soft delete, like single delete: the contacts are hidden everywhere
+  // (groups skip deleted members) but can be restored, with their notes,
+  // follow-ups, messages and group memberships intact.
+  const deletedAt = new Date().toISOString();
   const { error } = await supabase
     .from("contacts")
-    .delete()
-    .in("id", contactIds);
+    .update({ deleted_at: deletedAt })
+    .in("id", contactIds)
+    .is("deleted_at", null);
 
   if (error) {
     return { error: "The selected contacts could not be deleted." };
