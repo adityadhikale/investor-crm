@@ -10,6 +10,7 @@ import {
 } from "@/components/contact-details-dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast-provider";
+import { UnreadBadge } from "@/components/unread-badge";
 import {
   Dialog,
   DialogClose,
@@ -23,9 +24,12 @@ import {
 export function ContactsTable({
   contacts,
   search,
+  unreadCounts = {},
 }: {
   contacts: ContactRow[];
   search: string;
+  /** Unread WhatsApp message counts keyed by contact id. */
+  unreadCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -144,7 +148,12 @@ export function ContactsTable({
                           className="size-4 cursor-pointer accent-primary"
                         />
                       </td>
-                      <td className="px-5 py-2.5 sm:py-4 font-medium">{contact.name}</td>
+                      <td className="px-5 py-2.5 sm:py-4 font-medium">
+                        <span className="inline-flex items-center gap-2">
+                          {contact.name}
+                          <UnreadBadge count={unreadCounts[contact.id]} />
+                        </span>
+                      </td>
                       <td className="px-5 py-2.5 sm:py-4">{contact.phone}</td>
                       <td className="px-5 py-2.5 sm:py-4 text-muted-foreground">
                         {contact.email ? (

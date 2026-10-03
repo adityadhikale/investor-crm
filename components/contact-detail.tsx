@@ -69,6 +69,7 @@ type ContactDetailProps = {
   whatsAppMessagesError?: string | null;
   initialWhatsAppSummary?: string | null;
   initialWhatsAppSummaryGeneratedAt?: string | null;
+  initialUnreadCount?: number;
 };
 
 function toISODateString(date: Date) {
@@ -161,6 +162,7 @@ export function ContactDetail({
   whatsAppMessagesError = null,
   initialWhatsAppSummary = null,
   initialWhatsAppSummaryGeneratedAt = null,
+  initialUnreadCount = 0,
 }: ContactDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -796,6 +798,7 @@ export function ContactDetail({
           onSendMedia={handleSendMedia}
           isSendingMedia={isSendingMedia}
           onOpened={() => void markReadAndNotify(contact.id)}
+          unreadCount={initialUnreadCount}
           className="mb-8"
         />
       </div>

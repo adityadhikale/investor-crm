@@ -38,6 +38,8 @@ export type WhatsAppHistoryProps = {
   isSendingMedia?: boolean;
   /** Called each time the full-history panel is opened (used to mark the chat as read). */
   onOpened?: () => void;
+  /** Unread inbound messages; shown as a badge until the full history is opened. */
+  unreadCount?: number;
 };
 
 function formatWhatsAppDate(sentAt: string | null, createdAt: string) {
@@ -71,8 +73,10 @@ export function WhatsAppHistory({
   onSendMedia,
   isSendingMedia = false,
   onOpened,
+  unreadCount = 0,
 }: WhatsAppHistoryProps) {
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(unreadCount);
   const [replyText, setReplyText] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -81,7 +85,10 @@ export function WhatsAppHistory({
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next) onOpened?.();
+    if (next) {
+      setUnread(0);
+      onOpened?.();
+    }
   }
 
   async function handleSendReply() {
@@ -141,6 +148,14 @@ export function WhatsAppHistory({
               {hasMessages && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   {messages.length} {messages.length === 1 ? "message" : "messages"}
+                </span>
+              )}
+              {unread > 0 && (
+                <span
+                  className="flex h-5 items-center justify-center rounded-full bg-destructive px-2 text-[11px] font-semibold leading-none text-white"
+                  title={`${unread} unread ${unread === 1 ? "message" : "messages"}`}
+                >
+                  {unread > 99 ? "99+" : unread} new
                 </span>
               )}
             </div>

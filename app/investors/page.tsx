@@ -11,6 +11,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 import { ilikeAnyFilter } from "@/lib/postgrest-filter";
+import { getUnreadCountsByContact } from "@/lib/unread";
 
 export const metadata: Metadata = {
   title: "Investors",
@@ -40,6 +41,7 @@ export default async function InvestorsPage({
   let contacts: ContactRow[] = [];
   let interactions: InteractionRow[] = [];
   let followUps: FollowUpRow[] = [];
+  let unreadCounts: Record<string, number> = {};
   let totalCount = 0;
   let page = requestedPage;
   let loadError: string | null = null;
@@ -80,7 +82,7 @@ export default async function InvestorsPage({
     const contactIds = contacts.map((contact) => contact.id);
 
     if (contactIds.length) {
-      [interactions, followUps] = await Promise.all([
+      [interactions, followUps, unreadCounts] = await Promise.all([
         fetchAllPages<InteractionRow>((from, to) =>
           supabase
             .from("interactions")
@@ -100,6 +102,7 @@ export default async function InvestorsPage({
             .order("due_date", { ascending: true })
             .range(from, to)
         ),
+        getUnreadCountsByContact(supabase),
       ]);
     }
   } catch (err) {
@@ -152,7 +155,7 @@ export default async function InvestorsPage({
       />
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        <InvestorTrackingTable investors={rows} />
+        <InvestorTrackingTable investors={rows} unreadCounts={unreadCounts} />
         <PaginationControls page={page} totalCount={totalCount} itemLabel="investors" />
       </div>
     </div>

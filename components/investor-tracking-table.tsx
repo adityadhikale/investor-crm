@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 
 import type { ContactRow } from "@/components/contact-details-dialog";
+import { UnreadBadge } from "@/components/unread-badge";
 
 export type InvestorTrackingRow = ContactRow & {
   lastInteraction: string | null;
@@ -21,8 +22,11 @@ function formatDate(value: string | null) {
 
 export function InvestorTrackingTable({
   investors,
+  unreadCounts = {},
 }: {
   investors: InvestorTrackingRow[];
+  /** Unread WhatsApp message counts keyed by contact id. */
+  unreadCounts?: Record<string, number>;
 }) {
   const router = useRouter();
 
@@ -55,7 +59,12 @@ export function InvestorTrackingTable({
                   tabIndex={0}
                   role="link"
                 >
-                  <td className="px-5 py-2.5 sm:py-4 font-medium">{investor.name}</td>
+                  <td className="px-5 py-2.5 sm:py-4 font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      {investor.name}
+                      <UnreadBadge count={unreadCounts[investor.id]} />
+                    </span>
+                  </td>
                   <td className="px-5 py-2.5 sm:py-4">{investor.phone}</td>
                   <td className="whitespace-nowrap px-5 py-2.5 sm:py-4">
                     {formatDate(investor.lastInteraction)}

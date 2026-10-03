@@ -71,6 +71,7 @@ type InvestorDetailProps = {
   whatsAppMessagesError?: string | null;
   initialWhatsAppSummary?: string | null;
   initialWhatsAppSummaryGeneratedAt?: string | null;
+  initialUnreadCount?: number;
 };
 
 function toISODateString(date: Date) {
@@ -165,6 +166,7 @@ export function InvestorDetail({
   whatsAppMessagesError = null,
   initialWhatsAppSummary = null,
   initialWhatsAppSummaryGeneratedAt = null,
+  initialUnreadCount = 0,
 }: InvestorDetailProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -789,6 +791,7 @@ export function InvestorDetail({
           onSendMedia={handleSendMedia}
           isSendingMedia={isSendingMedia}
           onOpened={() => void markReadAndNotify(contact.id)}
+          unreadCount={initialUnreadCount}
           className="mb-8"
         />
       </div>

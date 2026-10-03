@@ -8,6 +8,7 @@ import { LiveSearchInput } from "@/components/live-search-input";
 import { PaginationControls } from "@/components/pagination-controls";
 import { TagFilter } from "@/components/tag-filter";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
+import { getUnreadCountsByContact } from "@/lib/unread";
 import { ilikeAnyFilter } from "@/lib/postgrest-filter";
 import { INVESTOR_TAG } from "@/lib/tags";
 
@@ -65,10 +66,11 @@ export default async function ContactsPage({
   let investors = 0;
   let taggedContacts = 0;
   let totalGroups = 0;
+  let unreadCounts: Record<string, number> = {};
   let loadError: string | null = null;
 
   try {
-    const [filtered, total, investorCount, taggedCount, groupCount] = await Promise.all([
+    const [filtered, total, investorCount, taggedCount, groupCount, unread] = await Promise.all([
       buildFilteredCountQuery(),
       supabase
         .from("contacts")
@@ -85,7 +87,9 @@ export default async function ContactsPage({
         .is("deleted_at", null)
         .neq("tags", "{}"),
       supabase.from("groups").select("id", { count: "exact", head: true }),
+      getUnreadCountsByContact(supabase),
     ]);
+    unreadCounts = unread;
 
     const countError = [filtered, total, investorCount, taggedCount, groupCount].find(
       (result) => result.error
@@ -179,6 +183,7 @@ export default async function ContactsPage({
         <ContactsTable
           key={`${search}-${tagsParam}-${page}`}
           contacts={contacts}
+          unreadCounts={unreadCounts}
           search={search}
         />
         <PaginationControls page={page} totalCount={filteredCount} />

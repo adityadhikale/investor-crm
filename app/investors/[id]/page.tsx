@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
+import { getUnreadCountsByContact } from "@/lib/unread";
 import { InvestorDetail, type WhatsAppMessage } from "@/components/investor-detail";
 import type { MeetingNote } from "@/app/contacts/actions";
 import type { FollowUp } from "@/app/investors/actions";
@@ -54,6 +55,8 @@ export default async function InvestorDetailPage({
     .is("deleted_at", null)
     .order("sent_at", { ascending: true });
 
+  const unreadCounts = await getUnreadCountsByContact(supabase);
+
   return (
     <InvestorDetail
       contact={contact}
@@ -65,6 +68,7 @@ export default async function InvestorDetailPage({
       whatsAppMessagesError={whatsAppMessagesError ? "WhatsApp messages could not be loaded." : null}
       initialWhatsAppSummary={contact.whatsapp_summary ?? null}
       initialWhatsAppSummaryGeneratedAt={contact.whatsapp_summary_generated_at ?? null}
+      initialUnreadCount={unreadCounts[contact.id] ?? 0}
     />
   );
 }
