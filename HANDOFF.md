@@ -1,7 +1,9 @@
 # CREST CRM — HANDOFF / CONTEXT
-## Updated: 2 October 2026
+## Updated: 3 October 2026
 
 You are continuing development of an internal single-user Investor CRM for CREST Capital Management. This document is the source of truth for context — read it fully before suggesting any changes.
+
+**CURRENT PHASE (decided by Aditya on 3 Oct 2026):** (1) a **security + performance optimization pass**, then (2) **step-wise testing** driven by a list Aditya will provide. The optimization pass must keep the app **working exactly as it does now — same functionality, same UI**. Read §10 and §11 before touching anything.
 
 IMPORTANT:
 - The project is already substantially built. DO NOT rebuild existing functionality.
@@ -138,6 +140,7 @@ Previously: contact management, CSV/Excel import with review UX, contact notes, 
 
 # 9. ROADMAP / NEXT STEPS
 
+- 👉 **Next:** §10 (security + performance pass, behaviour-preserving), then §11 (Aditya's testing list).
 - ✅ Pagination, Unread Messages, notification bell, settings + dark mode, group minimum-member rule, privacy policy, webhook fix, security lock-down, Netlify deployment, Meta app Live, real number registered, two-way WhatsApp verified.
 - ⏳ **Meta Support case** (restricted portfolio, old WhatsApp account, which portfolio is verified, business verification for the working portfolio).
 - ⏳ **Re-import contacts** when Aditya wants them back.
@@ -146,3 +149,58 @@ Previously: contact management, CSV/Excel import with review UX, contact notes, 
 - ⏳ Optional: soft-delete or "type DELETE" confirmation for bulk contact delete; block deleting a group's last contact; per-message delivery status columns; audit the broadcast composer pickers for the 1000-row cap; `.gitignore` for `supabase/.temp/`.
 
 Do NOT start a "Recently Deleted" restore feature, or register his boss's real number, without Aditya explicitly asking.
+
+---
+
+# 10. PRE-TESTING OPTIMIZATION & SECURITY PASS (planned — nothing below has been changed yet)
+
+## Ground rules (non-negotiable — Aditya's requirement: "the app will work the same as it is before")
+1. **No change in behaviour or UI.** If a fix would be visible to the user (layout, wording, flow), stop and ask Aditya first.
+2. **One change per commit**, smallest possible diff. Before each commit: `npx tsc --noEmit`, `npx eslint <files>`, and `npm run build` must all pass. Compare the touched page/flow before vs after (screenshots or outputs).
+3. First create a restore point: `git tag pre-optimization-2026-10-03` on the current `master` (push the tag to both remotes) so anything can be rolled back with one command.
+4. **Do not touch RLS policies, Supabase Auth settings, Meta settings or secrets** as part of this pass unless a numbered item below says so and Aditya agrees. No major-version dependency upgrades (patch bumps only, as listed).
+5. Verify on the dev server first, then after pushing to **both remotes** and redeploying on Netlify, re-run the baseline smoke checks in §11. Aditya must log in himself (never enter his password).
+6. Measure before optimizing performance (page load timings / number of queries) so improvements are real, not guesses.
+
+## A. Security findings (from a read-only audit on 2–3 Oct 2026), most important first
+1. **Critical npm advisory in `next`** (GHSA-vcvr-r3jv-pc5j, remote code execution in `next/og` ImageResponse; affects 16.2.0–16.3.5). The app does **not** use `next/og`, but upgrade the exact pins in `package.json`: `next` and `eslint-config-next` from `16.3.4` → `16.3.8` (patch bump; `npm audit` names this as the fix). Re-run build and every page.
+2. **Two exported server actions have no auth check and use the service role:** `dispatchDueBroadcasts` (`app/broadcasts/actions.ts`) and `dispatchDueFollowUpReminders` (`app/follow-ups/actions.ts`). Functions exported from a `"use server"` file can become callable endpoints. They are only meant to be called by the secret-protected routes `/api/broadcasts/trigger` and `/api/follow-ups/trigger` (the reminder one also by the `sendTestFollowUpReminder` wrapper). Move them into a plain server module (e.g. `lib/`) and import from there — behaviour identical. (All other exported actions already call `requireActionAuth`.)
+3. **Webhook signature check fails open:** `app/api/whatsapp/webhook/route.ts` only verifies `x-hub-signature-256` when `META_APP_SECRET` is set. Make it fail **closed** in production (reject if the secret is missing) while keeping local dev usable, and compare with `crypto.timingSafeEqual`.
+4. **Trigger routes compare `SCHEDULER_SECRET` with `!==`** — switch to a constant-time comparison.
+5. **PostgREST filter injection via search text:** search strings are interpolated into `.or(...)` filters in `app/contacts/page.tsx`, `app/investors/page.tsx`, `app/groups/actions.ts` (`getGroupContactOptions`, `searchContactsForNewGroup`) and `ilike` in `app/groups/page.tsx`. Text containing `,` `(` `)` can change the filter. Impact is limited by owner-only RLS, but sanitize/escape those characters without changing normal searches (names with spaces, apostrophes, `+` in phones must still match).
+6. **No HTTP security headers** (`next.config.ts` only sets the Server Actions body limit). Add safe ones: `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, `Permissions-Policy`. **Do not add a strict CSP blindly:** the root layout has an inline theme script (`lib/theme.ts`) and Google Fonts; if a CSP is wanted, start with `Content-Security-Policy-Report-Only` and test login, dark mode and fonts.
+7. **Dependencies:** `shadcn` (a CLI) is listed as a runtime dependency and pulls high-severity transitive advisories (ts-morph/braces/micromatch). Check it isn't imported at runtime, then move it to `devDependencies` (or remove). Run the **non-breaking** `npm audit fix` for `brace-expansion`, `fast-uri`, `ip-address`. `exceljs`→`uuid` (moderate) has no safe fix; it is server-only and not exercised — accept. Never run `npm audit fix --force`.
+8. **Public Storage bucket `whatsapp-media`:** files sent to contacts are readable by anyone with the URL. Moving to a private bucket with signed URLs is the proper fix but changes how media displays — **ask Aditya before doing it.**
+9. Housekeeping: `.gitignore` for `supabase/.temp/` (`git rm -r --cached`); keep Supabase sign-up OFF and RLS owner-only (re-verify after any DB change — see the anon test in §11).
+
+## B. Performance findings (no behaviour change)
+1. **Dashboard (`app/dashboard/page.tsx`) fetches six full datasets on every load** via `fetchAllPages` (all contacts, follow-ups, interactions, etc.). Replace with count queries and/or small SQL aggregate functions (RPC) for the tag-distribution chart, "Investors Going Quiet" and the follow-up trend. Biggest win. Output must match exactly (compare the numbers before/after).
+2. **Duplicate polling:** the sidebar badge and the notification bell each call a server action every 60 s (`getUnreadConversationCount`, `getNotifications`). Share one poller and pause it when the tab is hidden (`visibilitychange`).
+3. **Database indexes** — first check what exists: `select tablename, indexname, indexdef from pg_indexes where schemaname='public' order by 1;`. Candidate non-breaking indexes: `whatsapp_messages(contact_id, direction, sent_at)` (the `unread_conversations()` function runs a correlated subquery per message), `follow_ups(is_done, due_date)` partial `where deleted_at is null`, `contacts(phone)`, GIN on `contacts(tags)`, `contact_groups(group_id)` and `(contact_id)`, `interactions(contact_id, created_at)`. Ship as a migration file; Aditya pastes it into the SQL editor.
+4. **Contacts page** runs five count queries plus the page query per load — acceptable; optimize last (e.g. one RPC).
+5. **Fonts:** the root layout loads Geist, Geist Mono and Playfair Display (Google) plus Maharlika on every page. Confirm Geist Mono / Playfair are actually used (they appear in `broadcast-editor`, `globals.css` and as the logo fallback) and trim unused ones — the logo must look identical.
+6. **Groups page** loads every group's members inline. Counting members and loading the list on open would be faster but is visible behaviour — ask first.
+7. Minor: one `<img>` lint warning in `components/whatsapp-history.tsx` (leave unless trivial); `recharts` could be loaded only on the dashboard (check the bundle first); Netlify free functions have short time limits that slow Gemini calls can hit.
+
+---
+
+# 11. TESTING (pending — Aditya will give the list, we go step by step)
+
+Aditya will provide his testing list in the new chat. Work through it **one item at a time**: tell him exactly what to do, then verify on your side where possible (database via the service key, webhook, token). He logs in himself.
+
+## Baseline smoke checks (run before AND after the optimization pass)
+Run these on the dev server and on https://investor-crm.netlify.app:
+1. Login/logout; `/contacts` without a login redirects to `/login`; `/privacy-policy` opens without login.
+2. Contacts: list shows 100/page, page counter, search, tag filter, add, edit, delete, import CSV/Excel.
+3. Groups: creating one requires choosing at least one contact; removing the last member is blocked; add/remove/delete otherwise work.
+4. Investors list and detail pages; meeting notes; follow-ups (add, done, overdue); "Suggest with AI"; voice-note upload; AI chat summary.
+5. WhatsApp: send text from a contact page (needs the contact to have messaged within 24 h); send media; **inbound** message from a phone appears in WhatsApp History, `/unread-messages`, the sidebar badge and the bell; opening the history marks it read.
+6. Broadcasts and Templates: list, create, view; scheduled/send paths only when Aditya asks (they message real people).
+7. Dashboard widgets and numbers; dark mode switch; `/my-profile` settings save (needs the `app_settings` table, which exists) and the two downloads (contacts CSV, full JSON backup).
+8. Responsive layout at phone width; no console errors.
+
+## Scripted security checks (read-only; use the keys in `.env.local` without printing them)
+- **Anonymous visitor sees nothing:** with only the anon key, `GET /rest/v1/<table>?select=*&limit=1` must return 0 rows for every table, and an anonymous `INSERT` into `whatsapp_messages` must fail with HTTP 401 (RLS violation).
+- **Sign-up is off:** `GET <SUPABASE_URL>/auth/v1/settings` shows `disable_signup: true`.
+- **Webhook:** an unsigned POST to `/api/whatsapp/webhook` → 401 "Missing signature"; a wrong signature → 401 "Invalid signature"; a correctly signed (HMAC-SHA256 with `META_APP_SECRET`) test payload from a made-up number is accepted and saved with `contact_id = null` (delete that test row afterwards).
+- **Token health:** `debug_token` shows the System User token valid, never expires, with both WhatsApp scopes; the phone number reads CONNECTED/GREEN.
