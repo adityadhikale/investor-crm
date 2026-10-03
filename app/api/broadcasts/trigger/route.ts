@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dispatchDueBroadcasts } from "@/app/broadcasts/actions";
+import { dispatchDueBroadcasts } from "@/lib/broadcast-dispatch";
 
 export async function POST(request: Request) {
   const authHeader = request.headers.get("authorization");
