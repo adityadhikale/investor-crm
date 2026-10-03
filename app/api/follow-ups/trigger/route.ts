@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { dispatchDueFollowUpReminders } from "@/app/follow-ups/actions";
+import { dispatchDueFollowUpReminders } from "@/lib/follow-up-reminders";
 
 export async function POST(request: Request) {
   const authHeader = request.headers.get("authorization");
