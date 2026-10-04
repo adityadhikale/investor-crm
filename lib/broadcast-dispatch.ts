@@ -7,6 +7,7 @@ import {
   sendWhatsAppTemplateMessage,
 } from "@/lib/whatsapp";
 import { fetchAllPages } from "@/lib/supabase-pagination";
+import { insertOutboundMessage } from "@/lib/message-status";
 
 export interface BroadcastSendResult {
   contactId: string;
@@ -513,17 +514,17 @@ async function sendToRecipient(
     templateParams = resolution.params;
   }
 
+  let wamid: string | undefined;
   try {
-    if (prepared.metaTemplate) {
-      await sendWhatsAppTemplateMessage({
-        to: normalizedPhone,
-        templateName: prepared.metaTemplate.name,
-        language: prepared.metaTemplate.language,
-        bodyParameters: templateParams,
-      });
-    } else {
-      await sendWhatsAppMessage({ to: normalizedPhone, message: messageToSend });
-    }
+    const response = prepared.metaTemplate
+      ? await sendWhatsAppTemplateMessage({
+          to: normalizedPhone,
+          templateName: prepared.metaTemplate.name,
+          language: prepared.metaTemplate.language,
+          bodyParameters: templateParams,
+        })
+      : await sendWhatsAppMessage({ to: normalizedPhone, message: messageToSend });
+    wamid = response.messages?.[0]?.id;
   } catch (err: unknown) {
     await finish("failed", err instanceof Error ? err.message : "Failed to send message");
     return;
@@ -534,12 +535,11 @@ async function sendToRecipient(
   // Log it so it shows in WhatsApp History. The message already went out, so
   // a logging failure doesn't count against the recipient.
   if (recipient.contact_id) {
-    const { error: logError } = await supabase.from("whatsapp_messages").insert({
-      contact_id: recipient.contact_id,
-      direction: "out",
-      message_text: messageToSend,
-      sent_at: new Date().toISOString(),
-    });
+    const { error: logError } = await insertOutboundMessage(
+      supabase,
+      { contact_id: recipient.contact_id, message_text: messageToSend },
+      wamid,
+    );
     if (logError) {
       console.error("Failed to log outbound broadcast message:", logError);
     }

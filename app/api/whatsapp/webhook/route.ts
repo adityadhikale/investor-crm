@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { safeEqual } from "@/lib/secure-compare";
 import { storeInboundWhatsAppMedia } from "@/lib/inbound-media";
+import { applyDeliveryStatus, describeDeliveryError } from "@/lib/message-status";
 import { normalizeToLocalPhone } from "@/lib/whatsapp";
 
 // In-memory bounded cache for recently processed Meta message IDs (wamid)
@@ -339,12 +340,18 @@ export async function processStatusUpdate(statusUpdate: MetaStatusUpdate) {
     `[WhatsApp Webhook] Delivery status update: wamid=${messageId} status=${status}${errorInfo}`
   );
 
-  // NOTE: Schema limitation audit
-  // The current whatsapp_messages schema does not have status, error, or meta_message_id columns,
-  // and the broadcasts table does not record per-message wamid values or recipient failure states.
-  // Per architectural constraints, status transitions (sent, delivered, read, failed) are acknowledged
-  // and logged safely without attempting non-existent database column mutations or inventing synthetic relationships.
-
+  // Save it on the message so the chat can show ticks and, for a failure, why.
+  const reportedAt = statusUpdate.timestamp
+    ? new Date(Number(statusUpdate.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+  const errorText = firstError
+    ? describeDeliveryError(
+        firstError.code,
+        firstError.title || firstError.message,
+        firstError.error_data?.details,
+      )
+    : null;
+  await applyDeliveryStatus(createServiceRoleClient(), messageId, status, errorText, reportedAt);
   return {
     success: true,
     messageId,

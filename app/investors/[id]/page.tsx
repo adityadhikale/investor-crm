@@ -50,7 +50,7 @@ export default async function InvestorDetailPage({
 
   const { data: whatsappMessages, error: whatsAppMessagesError } = await supabase
     .from("whatsapp_messages")
-    .select("id, direction, message_text, media_url, sent_at, created_at")
+    .select("*")
     .eq("contact_id", id)
     .is("deleted_at", null)
     .order("sent_at", { ascending: true });

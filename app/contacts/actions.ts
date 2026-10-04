@@ -16,6 +16,7 @@ import { TAG_OPTIONS } from "@/lib/tags";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { linkUnmatchedMessages } from "@/lib/link-messages";
+import { insertOutboundMessage } from "@/lib/message-status";
 
 const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
 
@@ -362,7 +363,7 @@ export async function getWhatsAppMessages(contactId: string) {
 
   const { data: messages, error } = await supabase
     .from("whatsapp_messages")
-    .select("id, direction, message_text, media_url, sent_at, created_at")
+    .select("*")
     .eq("contact_id", normalizedContactId)
     .is("deleted_at", null)
     .order("sent_at", { ascending: true });
@@ -431,6 +432,7 @@ export async function sendWhatsAppReply(
     return { error: REPLY_WINDOW_CLOSED_ERROR };
   }
 
+  let wamid: string | undefined;
   try {
     const response = await sendWhatsAppMessage({
       to: contact.phone,
@@ -440,18 +442,18 @@ export async function sendWhatsAppReply(
     if (response.error) {
       return { error: response.error.message || "WhatsApp could not send this message." };
     }
+    wamid = response.messages?.[0]?.id;
   } catch (err: unknown) {
     const messageText =
       err instanceof Error ? err.message : "WhatsApp could not send this message.";
     return { error: messageText };
   }
 
-  const { error: insertError } = await supabase.from("whatsapp_messages").insert({
-    contact_id: normalizedContactId,
-    direction: "out",
-    message_text: normalizedMessage,
-    sent_at: new Date().toISOString(),
-  });
+  const { error: insertError } = await insertOutboundMessage(
+    supabase,
+    { contact_id: normalizedContactId, message_text: normalizedMessage },
+    wamid,
+  );
 
   if (insertError) {
     // Message was sent via Meta but failed to log locally; surface this so
@@ -507,13 +509,15 @@ export async function sendWhatsAppTemplateToContact(
     return { error: "Please fill in every variable before sending." };
   }
 
+  let wamid: string | undefined;
   try {
-    await sendWhatsAppTemplateMessage({
+    const response = await sendWhatsAppTemplateMessage({
       to: contact.phone,
       templateName: template.name,
       language: template.language,
       bodyParameters: values,
     });
+    wamid = response.messages?.[0]?.id;
   } catch (err: unknown) {
     return {
       error: err instanceof Error ? err.message : "WhatsApp could not send this template.",
@@ -525,12 +529,11 @@ export async function sendWhatsAppTemplateToContact(
     sentText = sentText.replaceAll(`{{${ph}}}`, values[index]);
   });
 
-  const { error: insertError } = await supabase.from("whatsapp_messages").insert({
-    contact_id: contact.id,
-    direction: "out",
-    message_text: sentText,
-    sent_at: new Date().toISOString(),
-  });
+  const { error: insertError } = await insertOutboundMessage(
+    supabase,
+    { contact_id: contact.id, message_text: sentText },
+    wamid,
+  );
   if (insertError) {
     return { error: "Template sent, but could not be saved to WhatsApp history." };
   }
@@ -607,27 +610,31 @@ export async function sendWhatsAppMediaReply(
     return { error: msg };
   }
 
+  let wamid: string | undefined;
   try {
     const mediaId = await uploadWhatsAppMedia(fileBuffer, file.type, file.name);
-    await sendWhatsAppMediaMessage({
+    const response = await sendWhatsAppMediaMessage({
       to: contact.phone,
       mediaId,
       mediaType,
       filename: file.name,
       caption: caption?.trim() || undefined,
     });
+    wamid = response.messages?.[0]?.id;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "WhatsApp could not send this file.";
     return { error: msg };
   }
 
-  const { error: insertError } = await supabase.from("whatsapp_messages").insert({
-    contact_id: normalizedContactId,
-    direction: "out",
-    message_text: caption?.trim() || null,
-    media_url: publicMediaUrl,
-    sent_at: new Date().toISOString(),
-  });
+  const { error: insertError } = await insertOutboundMessage(
+    supabase,
+    {
+      contact_id: normalizedContactId,
+      message_text: caption?.trim() || null,
+      media_url: publicMediaUrl,
+    },
+    wamid,
+  );
 
   if (insertError) {
     return { error: "File sent, but could not be saved to WhatsApp history." };
@@ -1075,7 +1082,7 @@ export async function generateWhatsAppSummary(
   try {
     const { data: messages, error: messagesError } = await supabase
       .from("whatsapp_messages")
-      .select("id, direction, message_text, media_url, sent_at, created_at")
+      .select("*")
       .eq("contact_id", normalizedContactId)
       .is("deleted_at", null)
       .order("sent_at", { ascending: true });

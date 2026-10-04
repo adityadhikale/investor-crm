@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
+  Check,
+  CheckCheck,
   Clock,
   Loader2,
   MessageCircle,
@@ -35,6 +38,10 @@ export type WhatsAppMessage = {
   media_url: string | null;
   sent_at: string | null;
   created_at: string;
+  /** Delivery state of a message we sent, as reported by WhatsApp. */
+  status?: "sent" | "delivered" | "read" | "failed" | null;
+  /** Why WhatsApp couldn't deliver it, when status is "failed". */
+  status_error?: string | null;
 };
 
 export type WhatsAppHistoryProps = {
@@ -62,6 +69,23 @@ export type WhatsAppHistoryProps = {
 };
 
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** WhatsApp-style ticks: one = accepted, two = delivered, blue = read, red ! = failed. */
+function DeliveryTicks({ status }: { status?: WhatsAppMessage["status"] }) {
+  if (status === "failed") {
+    return <AlertCircle className="size-3 text-red-500" aria-label="Not delivered" />;
+  }
+  if (status === "read") {
+    return <CheckCheck className="size-3.5 text-sky-500" aria-label="Read" />;
+  }
+  if (status === "delivered") {
+    return <CheckCheck className="size-3.5 opacity-60" aria-label="Delivered" />;
+  }
+  if (status === "sent") {
+    return <Check className="size-3.5 opacity-60" aria-label="Sent" />;
+  }
+  return null;
+}
 
 /**
  * A photo, voice note, audio, video or file inside a chat bubble. Older
@@ -552,8 +576,18 @@ export function WhatsAppHistory({
                             {message.message_text}
                           </p>
                         )}
-                        <p className="mt-0.5 text-right text-[10px] leading-none opacity-60">
-                          {formatBubbleTime(at)}
+                        {!isInbound && message.status === "failed" && (
+                          <p className="mt-1 flex items-start gap-1 rounded bg-red-500/15 px-1.5 py-1 text-[11px] leading-snug text-red-700 dark:text-red-300">
+                            <AlertCircle className="mt-px size-3 shrink-0" />
+                            <span>
+                              Not delivered.{" "}
+                              {message.status_error ?? "WhatsApp could not deliver this message."}
+                            </span>
+                          </p>
+                        )}
+                        <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] leading-none">
+                          <span className="opacity-60">{formatBubbleTime(at)}</span>
+                          {!isInbound && <DeliveryTicks status={message.status} />}
                         </p>
                       </div>
                     </div>
