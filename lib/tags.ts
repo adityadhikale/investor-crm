@@ -7,6 +7,7 @@ export const TAG_OPTIONS: string[] = [
   "Potential Leads",
   "IFA",
   "Distributors",
+  "Leads",
 ];
 
 export const INVESTOR_TAG = "Investors";
@@ -24,4 +25,5 @@ export const TAG_COLORS: Record<string, string> = {
   "Potential Leads": "#ef4444",
   IFA: "#ec4899",
   Distributors: "#84cc16",
+  Leads: "#f97316",
 };

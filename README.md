@@ -23,7 +23,7 @@ Core contact management, investor tracking, WhatsApp integration (webhook + broa
 - Not yet tested: importing a real Google Contacts export (manual CSV export chosen over live OAuth sync — see Roadmap).
 
 ### 3. Tags & Custom Groups
-- Standard tags (Investors, Shareholders, FMS Leads, EO, GRI, Potential Leads, IFA, Distributors) plus custom tags, single source of truth exported from `add-contact-dialog.tsx`.
+- Standard tags (Investors, Shareholders, FMS Leads, EO, GRI, Potential Leads, IFA, Distributors, Leads) plus custom tags, single source of truth exported from `add-contact-dialog.tsx`.
 - Custom group creation, editing, and deletion (groups use intentional hard-delete, not soft-delete).
 - Bulk checkbox-based group assignment/removal, with a "Select All" / indeterminate toggle.
 
