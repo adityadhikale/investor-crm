@@ -6,7 +6,10 @@ export const metadata: Metadata = {
     "How Crest Capital Management Private Limited collects, uses and protects personal information.",
 };
 
-const CONTACT_EMAIL = "aditya.dhikale@crest-group.co";
+const CONTACT_EMAIL = "info@crest-group.co";
+const WEBSITE_URL = "https://www.crest-capital.com";
+const REGISTERED_OFFICE =
+  "B/601, Lantane Mahindra S, LBS Marg, Bhandup (West), Mumbai - 400078";
 
 function Section({
   id,
@@ -29,7 +32,7 @@ export default function PrivacyPolicyPage() {
   return (
     <div className="mx-auto w-full max-w-3xl px-5 py-10 leading-relaxed sm:py-14">
       <h1 className="text-3xl font-semibold">Privacy Policy</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Last updated: 2 October 2026</p>
+      <p className="mt-1 text-sm text-muted-foreground">Last updated: 5 October 2026</p>
 
       <p className="mt-6">
         This Privacy Policy explains how <strong>Crest Capital Management Private Limited</strong>{" "}
@@ -150,6 +153,30 @@ export default function PrivacyPolicyPage() {
           We may update this policy from time to time. The &quot;Last updated&quot; date above
           shows when it last changed.
         </p>
+      </Section>
+
+      <Section title="11. Contact us">
+        <p>For privacy questions, requests or complaints:</p>
+        <ul className="space-y-1">
+          <li>
+            <strong>Company:</strong> Crest Capital Management Private Limited
+          </li>
+          <li>
+            <strong>Email:</strong>{" "}
+            <a className="underline" href={`mailto:${CONTACT_EMAIL}`}>
+              {CONTACT_EMAIL}
+            </a>
+          </li>
+          <li>
+            <strong>Website:</strong>{" "}
+            <a className="underline" href={WEBSITE_URL} target="_blank" rel="noreferrer">
+              {WEBSITE_URL}
+            </a>
+          </li>
+          <li>
+            <strong>Registered office:</strong> {REGISTERED_OFFICE}
+          </li>
+        </ul>
       </Section>
     </div>
   );

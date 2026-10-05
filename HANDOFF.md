@@ -14,7 +14,7 @@ IMPORTANT:
 - **Secrets:** never ask Aditya to paste tokens/keys/passwords into chat and never repeat them. He has pasted some anyway (a temporary token, the Meta app secret in a screenshot — since reset — and the CRM login password on 3 Oct, which he should change). Keys go straight into `.env.local` and Netlify environment variables.
 - **Never send real WhatsApp messages or emails to people while testing** unless Aditya asks. Safe tests: contacts with no 24-hour window (plain text is skipped), invalid 8-digit phone numbers, made-up numbers through the signed local webhook. Clean up test rows afterwards.
 - **Read `node_modules/next/dist/docs/`** before writing Next.js code (see `AGENTS.md`) — Next.js 16 with breaking changes.
-- **Privacy:** Aditya does not want his name/email shown to CRM users. Code uses neutral examples ("Rahul Sharma", rahul@example.com). The only remaining place is the public privacy page (§9).
+- **Privacy:** Aditya does not want his name/email shown to CRM users or the public. Code uses neutral examples ("Rahul Sharma", rahul@example.com). The public privacy page (`app/privacy-policy/page.tsx`) uses the company address **info@crest-group.co** (changed 5 Oct); its Contact us section lists the company name, website and registered office from the company policy document. Do not put a personal name or email in the app.
 
 ---
 
@@ -135,7 +135,7 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 # 9. ROADMAP / NEXT STEPS
 
 - ⏳ **Media test**: Aditya to send a new photo, voice note and PDF; confirm `media_url` is a stored `inbound/…` copy (one repaired photo already works).
-- ⏳ **Privacy policy email**: `app/privacy-policy/page.tsx` `CONTACT_EMAIL` is still Aditya's work email; needs a real non-personal address (e.g. a privacy@ alias) from Aditya.
+- ✅ **Privacy policy contact** is now `info@crest-group.co` (5 Oct). Make sure that mailbox really receives mail: Meta's app settings point at `https://investor-crm.netlify.app/privacy-policy#data-deletion`. The company-wide policy document (Customer Privacy Protection Policy) is broader than this CRM page and lists `ig@crest-group.co`; the CRM page deliberately describes only what the CRM does.
 - ⏳ Aditya: change the CRM login password (shared in chat); Meta template approval + payment method + business verification + support case; Resend domain `crest-group.co` (DNS at GoDaddy in an account Aditya doesn't have — ask whoever set up Google Workspace; then set `RESEND_FROM_EMAIL` to `CREST CRM <reminders@crest-group.co>`); re-import contacts; confirm the Maharlika font licence.
 - Optional builds: delivery ticks (store wamid + status from webhook), private media bucket, restore-from-backup button, group-empty guard, tag validation on import.
 - Then §11 testing.
