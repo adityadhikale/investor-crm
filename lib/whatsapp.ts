@@ -309,7 +309,9 @@ export async function uploadWhatsAppMedia(
 
 export interface SendWhatsAppMediaMessageParams {
   to: string;
-  mediaId: string;
+  /** Either an uploaded media ID or a public https link to the file. */
+  mediaId?: string;
+  link?: string;
   mediaType: WhatsAppMediaType;
   filename?: string;
   caption?: string;
@@ -322,6 +324,7 @@ export interface SendWhatsAppMediaMessageParams {
 export async function sendWhatsAppMediaMessage({
   to,
   mediaId,
+  link,
   mediaType,
   filename,
   caption,
@@ -337,7 +340,8 @@ export async function sendWhatsAppMediaMessage({
     throw new Error(`Invalid recipient phone number: "${to}".`);
   }
 
-  const mediaObject: Record<string, unknown> = { id: mediaId };
+  if (!mediaId && !link) throw new Error("A media ID or link is required.");
+  const mediaObject: Record<string, unknown> = mediaId ? { id: mediaId } : { link };
   if (caption && (mediaType === "image" || mediaType === "video" || mediaType === "document")) {
     mediaObject.caption = caption;
   }

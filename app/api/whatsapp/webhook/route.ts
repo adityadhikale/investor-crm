@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendButtonAutoReply } from "@/lib/auto-reply";
 import crypto from "crypto";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 import { safeEqual } from "@/lib/secure-compare";
@@ -538,5 +539,12 @@ async function processSingleMessage({
       "[WhatsApp Webhook] Failed to insert message row:",
       insertError.message,
     );
+    return;
+  }
+
+  // Template quick-reply buttons (e.g. "Send details first") get a file back.
+  if (direction === "in" && type === "button") {
+    const repliedToId = (msgData.context as { id?: string } | undefined)?.id;
+    await sendButtonAutoReply(supabase, { buttonTitle: messageText, repliedToId, phone, contactId });
   }
 }
