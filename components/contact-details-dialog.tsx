@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   addContactToGroups,
   addTagToContact,
+  removeTagFromContact,
   deleteContact,
   getContactGroupOptions,
   updateContact,
@@ -42,7 +43,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Copy, Plus, Trash2, ExternalLink, Mail, Phone, Pencil } from "lucide-react";
+import { Copy, Plus, Trash2, ExternalLink, Mail, Phone, Pencil, X } from "lucide-react";
 import {
   DateSavedPicker,
   parseISODate,
@@ -110,7 +111,12 @@ export function ContactDetailsDialog({
   const [tag, setTag] = useState(contact.tags?.[0] ?? "");
   const [dateSaved, setDateSaved] = useState(contact.date_saved ? contact.date_saved.slice(0, 10) : "");
   const [notes, setNotes] = useState(contact.notes ?? "");
-  const [addingTag, setAddingTag] = useState(false);
+  // Whether the Add Tag dialog is open, and (separately) whether a tag is being saved.
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
+  const [savingTag, setSavingTag] = useState(false);
+  const [removingTag, setRemovingTag] = useState<string | null>(null);
+  // The tag waiting for the user to confirm its removal.
+  const [tagToRemove, setTagToRemove] = useState<string | null>(null);
   const [selectedTagToAdd, setSelectedTagToAdd] = useState("");
   const [addingGroups, setAddingGroups] = useState(false);
   const [availableGroups, setAvailableGroups] = useState<Array<{ id: string; name: string }>>([]);
@@ -166,17 +172,32 @@ export function ContactDetailsDialog({
 
   async function handleAddTag() {
     if (!selectedTagToAdd) return;
-    setAddingTag(true);
+    setSavingTag(true);
     const result = await addTagToContact(currentContact.id, selectedTagToAdd);
-    setAddingTag(false);
+    setSavingTag(false);
     if (result.error) {
       toast(result.error, "error");
       return;
     }
     setCurrentContact((existing) => ({ ...existing, tags: result.tags ?? existing.tags }));
     setSelectedTagToAdd("");
-    setAddingTag(false);
+    setTagDialogOpen(false);
     toast("Tag added successfully");
+  }
+
+  async function handleRemoveTag(tagToRemove: string) {
+    if (removingTag) return;
+    setRemovingTag(tagToRemove);
+    const result = await removeTagFromContact(currentContact.id, tagToRemove);
+    setRemovingTag(null);
+    setTagToRemove(null);
+    if (result.error) {
+      toast(result.error, "error");
+      return;
+    }
+    setCurrentContact((existing) => ({ ...existing, tags: result.tags ?? existing.tags }));
+    toast("Tag removed");
+    router.refresh();
   }
 
   async function openAddGroups() {
@@ -507,7 +528,7 @@ export function ContactDetailsDialog({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        onClick={() => { setSelectedTagToAdd(""); setAddingTag(true); }}
+                        onClick={() => { setSelectedTagToAdd(""); setTagDialogOpen(true); }}
                         aria-label="Add tag"
                       >
                         <Plus className="size-3.5" />
@@ -517,7 +538,19 @@ export function ContactDetailsDialog({
                       {currentContact.tags?.length ? (
                         <div className="flex flex-wrap gap-1.5">
                           {currentContact.tags.map((contactTag) => (
-                            <span key={contactTag} className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{contactTag}</span>
+                            <span key={contactTag} className="inline-flex items-center gap-1 rounded-full bg-muted py-1 pl-2.5 pr-1.5 text-xs font-medium text-muted-foreground">
+                              {contactTag}
+                              <button
+                                type="button"
+                                onClick={() => setTagToRemove(contactTag)}
+                                disabled={removingTag !== null}
+                                aria-label={`Remove tag ${contactTag}`}
+                                title="Remove this tag"
+                                className="rounded-full p-0.5 hover:bg-foreground/10 hover:text-foreground disabled:opacity-50"
+                              >
+                                <X className="size-3" />
+                              </button>
+                            </span>
                           ))}
                         </div>
                       ) : <span className="text-sm text-muted-foreground">No tags assigned</span>}
@@ -676,7 +709,7 @@ export function ContactDetailsDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={addingTag} onOpenChange={setAddingTag}>
+      <Dialog open={tagDialogOpen} onOpenChange={setTagDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Tag</DialogTitle>
@@ -690,7 +723,30 @@ export function ContactDetailsDialog({
           </Select>
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="button" onClick={handleAddTag} disabled={!selectedTagToAdd || addingTag}>{addingTag && selectedTagToAdd ? "Adding..." : "Add Tag"}</Button>
+            <Button type="button" onClick={handleAddTag} disabled={!selectedTagToAdd || savingTag}>{savingTag ? "Adding..." : "Add Tag"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tagToRemove !== null} onOpenChange={(next) => { if (!next && !removingTag) setTagToRemove(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove tag?</DialogTitle>
+            <DialogDescription>
+              Remove the tag &quot;{tagToRemove}&quot; from {currentContact.name}? The contact
+              and its other tags stay. You can add the tag again later.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={removingTag !== null} />}>Cancel</DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removingTag !== null}
+              onClick={() => tagToRemove && handleRemoveTag(tagToRemove)}
+            >
+              {removingTag ? "Removing..." : "Remove tag"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

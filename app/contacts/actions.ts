@@ -247,6 +247,35 @@ export async function addTagToContact(id: string, tag: string) {
   return { success: true, tags: updatedTags };
 }
 
+/** Removes one tag from a contact; its other tags are kept. */
+export async function removeTagFromContact(id: string, tag: string) {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) return { error: "Unauthorized" };
+
+  const normalizedTag = tag.trim();
+  if (!id.trim() || !normalizedTag) return { error: "The contact could not be found." };
+
+  const { data: contact, error: contactError } = await supabase
+    .from("contacts")
+    .select("id, tags")
+    .eq("id", id)
+    .maybeSingle();
+  if (contactError || !contact) return { error: "The contact could not be found." };
+
+  const tags = Array.isArray(contact.tags)
+    ? contact.tags.filter((value): value is string => typeof value === "string")
+    : [];
+  const updatedTags = tags.filter((value) => value.toLowerCase() !== normalizedTag.toLowerCase());
+  if (updatedTags.length === tags.length) return { error: "That tag is not on this contact." };
+
+  const { error } = await supabase.from("contacts").update({ tags: updatedTags }).eq("id", id);
+  if (error) return { error: "The tag could not be removed." };
+
+  revalidatePath("/contacts");
+  revalidatePath("/investors");
+  return { success: true, tags: updatedTags };
+}
+
 export async function addMeetingNote(contactId: string, note: string) {
   const { supabase, error: authError } = await requireActionAuth();
   if (authError || !supabase) return { error: "Unauthorized" };
