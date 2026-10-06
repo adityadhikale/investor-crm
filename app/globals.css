@@ -127,3 +127,12 @@
     @apply font-sans;
   }
 }
+
+/* Route loading screen (components/loading-screen.tsx) */
+@keyframes crest-bar-rise {
+  0%, 100% { transform: scaleY(0.3); opacity: 0.5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crest-loader * { animation: none !important; }
+}
