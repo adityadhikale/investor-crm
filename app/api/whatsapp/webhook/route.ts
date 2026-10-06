@@ -11,6 +11,9 @@ import { normalizeToLocalPhone } from "@/lib/whatsapp";
 const MAX_CACHE_SIZE = 5000;
 const processedMessageIds = new Set<string>();
 
+/** A message could not be saved; the webhook answers 500 so Meta sends it again. */
+class RetryableWebhookError extends Error {}
+
 function markAndCheckDuplicateId(id: string | undefined): boolean {
   if (!id) return false;
   if (processedMessageIds.has(id)) {
@@ -225,6 +228,7 @@ export async function POST(request: Request) {
 
   const entries = Array.isArray(body.entry) ? body.entry : [];
   let processedCount = 0;
+  let needsRetry = false;
 
   for (const entry of entries) {
     const changes = Array.isArray(entry?.changes) ? entry.changes : [];
@@ -271,6 +275,7 @@ export async function POST(request: Request) {
         } catch (err) {
           // Error isolation: single failure does not crash the entire webhook batch
           console.error("[WhatsApp Webhook] Error processing message:", err);
+          if (err instanceof RetryableWebhookError) needsRetry = true;
         }
       }
 
@@ -293,6 +298,7 @@ export async function POST(request: Request) {
         } catch (err) {
           // Error isolation
           console.error("[WhatsApp Webhook] Error processing echo:", err);
+          if (err instanceof RetryableWebhookError) needsRetry = true;
         }
       }
 
@@ -311,6 +317,15 @@ export async function POST(request: Request) {
         }
       }
     }
+  }
+
+  // A message that could not be saved is sent again by Meta. That is safe:
+  // messages are matched by their WhatsApp message ID, so nothing is saved twice.
+  if (needsRetry) {
+    return NextResponse.json(
+      { success: false, error: "A message could not be saved; please retry." },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({
@@ -472,38 +487,33 @@ async function processSingleMessage({
     }
   }
 
-  // Database-level deduplication: check if identical record already exists
-  let dupeQuery = supabase
-    .from("whatsapp_messages")
-    .select("id")
-    .eq("direction", direction)
-    .eq("sent_at", sentAt)
-    .is("deleted_at", null);
-
-  if (contactId) {
-    dupeQuery = dupeQuery.eq("contact_id", contactId);
+  // Database-level deduplication. WhatsApp gives every message a unique ID, so
+  // that is the check. Only a message without an ID falls back to comparing content.
+  if (messageId) {
+    const { data: sameId, error: sameIdError } = await supabase
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wamid", messageId)
+      .limit(1);
+    if (!sameIdError && sameId && sameId.length > 0) {
+      return; // already saved
+    }
   } else {
-    dupeQuery = dupeQuery.is("contact_id", null);
-  }
+    let dupeQuery = supabase
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("direction", direction)
+      .eq("sent_at", sentAt)
+      .is("deleted_at", null);
 
-  if (messageText !== null) {
-    dupeQuery = dupeQuery.eq("message_text", messageText);
-  } else {
-    dupeQuery = dupeQuery.is("message_text", null);
-  }
+    dupeQuery = contactId ? dupeQuery.eq("contact_id", contactId) : dupeQuery.is("contact_id", null);
+    dupeQuery = messageText !== null ? dupeQuery.eq("message_text", messageText) : dupeQuery.is("message_text", null);
+    dupeQuery = mediaUrl !== null ? dupeQuery.eq("media_url", mediaUrl) : dupeQuery.is("media_url", null);
 
-  if (mediaUrl !== null) {
-    dupeQuery = dupeQuery.eq("media_url", mediaUrl);
-  } else {
-    dupeQuery = dupeQuery.is("media_url", null);
-  }
-
-  const { data: existingRecords, error: dupeError } =
-    await dupeQuery.limit(1);
-
-  if (!dupeError && existingRecords && existingRecords.length > 0) {
-    // Already inserted previously
-    return;
+    const { data: existingRecords, error: dupeError } = await dupeQuery.limit(1);
+    if (!dupeError && existingRecords && existingRecords.length > 0) {
+      return; // already saved
+    }
   }
 
   // Insert into whatsapp_messages. The number is kept so a message from an
@@ -517,29 +527,36 @@ async function processSingleMessage({
     deleted_at: null,
     phone: phone ? normalizeToLocalPhone(String(phone)) : null,
     profile_name: profileName?.trim() || null,
+    wamid: messageId ?? null,
   };
-  let { error: insertError } = await supabase.from("whatsapp_messages").insert(row);
+  let current: Record<string, unknown> = row;
+  let { error: insertError } = await supabase.from("whatsapp_messages").insert(current);
 
-  // Until the add_phone_to_whatsapp_messages migration is applied these
-  // columns may not exist; drop only the missing one rather than losing the message.
-  if (insertError && /profile_name/i.test(insertError.message)) {
-    const { profile_name: _profileName, ...rowWithoutName } = row;
-    void _profileName;
-    ({ error: insertError } = await supabase.from("whatsapp_messages").insert(rowWithoutName));
+  // Until the later migrations are applied, some columns may not exist; drop
+  // only the missing one rather than losing the message.
+  for (let attempt = 0; attempt < 4 && insertError && insertError.code !== "23505"; attempt++) {
+    const message = insertError.message;
+    const missing = ["wamid", "profile_name", "phone"].find(
+      (column) => column in current && new RegExp(column, "i").test(message),
+    );
+    if (!missing) break;
+    const { [missing]: dropped, ...rest } = current;
+    void dropped;
+    current = rest;
+    ({ error: insertError } = await supabase.from("whatsapp_messages").insert(current));
   }
-  if (insertError && /phone/i.test(insertError.message)) {
-    const { phone: _phone, profile_name: _profileName, ...rowWithoutNew } = row;
-    void _phone;
-    void _profileName;
-    ({ error: insertError } = await supabase.from("whatsapp_messages").insert(rowWithoutNew));
-  }
+
+  // A second copy of the same message lost the race to the first: nothing to do.
+  if (insertError?.code === "23505") return;
 
   if (insertError) {
     console.error(
       "[WhatsApp Webhook] Failed to insert message row:",
       insertError.message,
     );
-    return;
+    // Forget the ID so Meta's retry is processed rather than treated as a repeat.
+    if (messageId) processedMessageIds.delete(messageId);
+    throw new RetryableWebhookError(insertError.message);
   }
 
   // Template quick-reply buttons (e.g. "Send details first") get a file back.

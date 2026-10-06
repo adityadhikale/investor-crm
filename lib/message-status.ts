@@ -72,6 +72,8 @@ export async function insertOutboundMessage(
       .from("whatsapp_messages")
       .insert({ ...base, wamid, status: "sent", status_at: base.sent_at });
     if (!withStatus.error) return { error: null };
+    // The webhook already saved this message (an echo arrived first): nothing to add.
+    if (withStatus.error.code === "23505") return { error: null };
     if (!/wamid|status/i.test(withStatus.error.message)) return { error: withStatus.error };
   }
 

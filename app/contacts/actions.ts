@@ -6,6 +6,7 @@ import type { WhatsAppMessage } from "@/components/whatsapp-history";
 import { generateChatSummary, transcribeVoiceNoteToMeetingNote } from "@/lib/gemini";
 import {
   mimeTypeToWhatsAppMediaType,
+  normalizeToLocalPhone,
   sendWhatsAppMediaMessage,
   sendWhatsAppMessage,
   sendWhatsAppTemplateMessage,
@@ -23,8 +24,11 @@ const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
 const DUPLICATE_PHONE_ERROR =
   "This phone number is already associated with another contact.";
 
+// Saved and compared in one canonical form so 919876543210, +91 98765 43210,
+// 09876543210 and 9876543210 are all the same number (Indian numbers are kept
+// as 10 digits; foreign numbers stay whole).
 function normalizePhone(value: string) {
-  return value.replace(/\D/g, "");
+  return normalizeToLocalPhone(value) ?? "";
 }
 
 async function fetchAllContactPhones(
