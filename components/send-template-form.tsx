@@ -121,7 +121,7 @@ export function SendTemplateForm({
   }
 
   return (
-    <div className="mb-3 rounded-md border bg-muted/20 p-3 text-xs">
+    <div className="mb-3 max-h-[60vh] overflow-y-auto overscroll-contain rounded-md border bg-muted/20 p-3 text-xs">
       <div className="mb-2 flex items-center justify-between">
         <span className="flex items-center gap-1.5 font-medium text-foreground">
           <FileText className="size-3.5" />
