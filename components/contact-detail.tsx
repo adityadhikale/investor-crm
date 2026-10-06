@@ -19,7 +19,8 @@ import {
   deleteMeetingNote,
   generateWhatsAppSummary,
   getMeetingNotes,
-  sendWhatsAppMediaReply,
+  prepareWhatsAppMediaUpload,
+  sendWhatsAppMediaFromStorage,
   sendWhatsAppReply,
   sendWhatsAppTemplateToContact,
   transcribeVoiceNote,
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
 import { markReadAndNotify } from "@/lib/unread-events";
+import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
 import {
   WhatsAppHistory,
   type WhatsAppMessage,
@@ -60,7 +62,11 @@ import {
   type ContactRow,
 } from "@/components/contact-details-dialog";
 
+export type { WhatsAppMessage };
+
 type ContactDetailProps = {
+  /** "investor" is the Investors page's version: same screen, investor wording. */
+  variant?: "contact" | "investor";
   contact: ContactRow;
   initialNotes: MeetingNote[];
   notesError: string | null;
@@ -98,10 +104,12 @@ function NoteHistory({
   notes,
   onEdit,
   onDelete,
+  noun,
 }: {
   notes: MeetingNote[];
   onEdit: (note: MeetingNote) => void;
   onDelete: (note: MeetingNote) => void;
+  noun: string;
 }) {
   return notes.length ? (
     <div className="space-y-4">
@@ -149,11 +157,12 @@ function NoteHistory({
       })}
     </div>
   ) : (
-    <p className="text-sm text-muted-foreground">Record what was discussed with this contact.</p>
+    <p className="text-sm text-muted-foreground">Record what was discussed with this {noun}.</p>
   );
 }
 
 export function ContactDetail({
+  variant = "contact",
   contact,
   initialNotes,
   notesError,
@@ -165,6 +174,8 @@ export function ContactDetail({
   initialWhatsAppSummaryGeneratedAt = null,
   initialUnreadCount = 0,
 }: ContactDetailProps) {
+  const isInvestor = variant === "investor";
+  const noun = isInvestor ? "investor" : "contact";
   const router = useRouter();
   const { toast } = useToast();
   const [summary, setSummary] = useState<string | null>(initialWhatsAppSummary);
@@ -227,7 +238,16 @@ export function ContactDetail({
   async function handleSendMedia(file: File, caption: string) {
     setIsSendingMedia(true);
     try {
-      const result = await sendWhatsAppMediaReply(contact.id, file, caption);
+      const prepared = await prepareWhatsAppMediaUpload(contact.id, file.name, file.type, file.size);
+      if ("error" in prepared) return { error: prepared.error };
+
+      // The file goes straight to storage, not through the web server.
+      const { error: uploadError } = await createBrowserSupabase()
+        .storage.from("whatsapp-media")
+        .uploadToSignedUrl(prepared.path, prepared.token, file, { contentType: file.type });
+      if (uploadError) return { error: "The file could not be uploaded. Please try again." };
+
+      const result = await sendWhatsAppMediaFromStorage(contact.id, prepared.path, file.type, file.name, caption);
       if ("error" in result && result.error) {
         return { error: result.error };
       }
@@ -577,26 +597,26 @@ export function ContactDetail({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <Link
-            href="/contacts"
+            href={isInvestor ? "/investors" : "/contacts"}
             className="mb-3 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            Back to Contacts
+            Back to {isInvestor ? "Investors" : "Contacts"}
           </Link>
           <h1 className="text-2xl font-semibold">{contact.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Contact relationship details</p>
+          <p className="mt-1 text-sm text-muted-foreground">{isInvestor ? "Investor" : "Contact"} relationship details</p>
         </div>
         <ContactDetailsDialog contact={contact} startInEditMode nativeButtonTrigger>
           <Button type="button" variant="outline" className="shrink-0">
             <Pencil className="size-4" />
-            Edit Contact
+            Edit {isInvestor ? "Investor" : "Contact"}
           </Button>
         </ContactDetailsDialog>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         <section className="rounded-lg border bg-background p-5">
-          <h2 className="text-base font-semibold">Contact</h2>
+          <h2 className="text-base font-semibold">{isInvestor ? "Investor" : "Contact"}</h2>
           <div className="mt-4 space-y-4">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</p>
@@ -629,6 +649,14 @@ export function ContactDetail({
                 <p className="mt-1 text-muted-foreground">No email added</p>
               </div>
             )}
+            {isInvestor ? (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</p>
+                <span className="mt-1 inline-flex rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                  Investor
+                </span>
+              </div>
+            ) : (
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</p>
               {contact.tags?.length ? (
@@ -646,6 +674,7 @@ export function ContactDetail({
                 <p className="mt-1 text-muted-foreground">No tags assigned</p>
               )}
             </div>
+            )}
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
               {contact.notes?.trim() ? (
@@ -663,7 +692,7 @@ export function ContactDetail({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold">Meeting Notes</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Record and review contact conversations.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Record and review {noun} conversations.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <input
@@ -702,6 +731,7 @@ export function ContactDetail({
                 notes={notes}
                 onEdit={startEditMeetingNote}
                 onDelete={setDeletingMeetingNote}
+                noun={noun}
               />
             )}
           </div>
@@ -711,7 +741,7 @@ export function ContactDetail({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold">Follow-ups</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Keep track of future contact actions.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Keep track of future {noun} actions.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -826,7 +856,7 @@ export function ContactDetail({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Meeting Note</DialogTitle>
-            <DialogDescription>Record what was discussed with this contact.</DialogDescription>
+            <DialogDescription>Record what was discussed with this {noun}.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddMeetingNote} className="space-y-4">
             <div className="flex flex-col gap-2">
@@ -835,7 +865,7 @@ export function ContactDetail({
                 id="contact-meeting-note"
                 value={meetingNote}
                 onChange={(event) => setMeetingNote(event.target.value)}
-                placeholder="e.g. Discussed project timeline."
+                placeholder={isInvestor ? "e.g. Discussed Q4 investment priorities." : "e.g. Discussed project timeline."}
                 rows={5}
                 className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-24 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 disabled={savingMeetingNote}
@@ -926,7 +956,7 @@ export function ContactDetail({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Follow-up</DialogTitle>
-            <DialogDescription>Schedule a future action for this contact.</DialogDescription>
+            <DialogDescription>Schedule a future action for this {noun}.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddFollowUp} className="space-y-4">
             <div className="flex flex-col gap-2">
@@ -964,7 +994,7 @@ export function ContactDetail({
                 id="contact-follow-up-message"
                 value={followUpMessage}
                 onChange={(event) => setFollowUpMessage(event.target.value)}
-                placeholder="e.g. Send the updated proposal."
+                placeholder={isInvestor ? "e.g. Send the updated investment proposal." : "e.g. Send the updated proposal."}
                 rows={4}
                 className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-24 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                 disabled={savingFollowUp}
@@ -1090,10 +1120,10 @@ export function ContactDetail({
             <DialogDescription className="space-y-2">
               <span>This follow-up has already been marked as completed.</span>
               <span className="block">
-                Deleting it will remove the follow-up from this contact&apos;s follow-up history.
+                Deleting it will remove the follow-up from this {noun}&apos;s follow-up history.
               </span>
               <span className="block">
-                The completion interaction will remain in the contact&apos;s interaction history.
+                The completion interaction will remain in the {noun}&apos;s interaction history.
               </span>
               <span className="block font-medium text-foreground">
                 This action cannot be undone.
@@ -1127,7 +1157,7 @@ export function ContactDetail({
           <DialogHeader>
             <DialogTitle>Mark follow-up as completed?</DialogTitle>
             <DialogDescription>
-              This will mark this follow-up as completed and add it to the contact&apos;s interaction history.
+              This will mark this follow-up as completed and add it to the {noun}&apos;s interaction history.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

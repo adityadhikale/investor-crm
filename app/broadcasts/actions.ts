@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireActionAuth } from "@/lib/auth";
 import {
+  retryFailedBroadcastRecipients,
   sendBroadcastBatch,
   type BroadcastSendSummary,
   type SendBroadcastResult,
@@ -427,6 +428,22 @@ export async function deleteBroadcasts(ids: string[]) {
 
   revalidatePath("/broadcasts");
   return { success: true, deleted };
+}
+
+/**
+ * Sends again to the recipients of a sent broadcast whose send failed. Like
+ * sendBroadcastNow, call it again while the result says `done: false`.
+ */
+export async function retryFailedBroadcast(broadcastId: string): Promise<SendBroadcastResult> {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) {
+    return { error: "Unauthorized" };
+  }
+
+  const result = await retryFailedBroadcastRecipients(supabase, broadcastId);
+  revalidatePath("/broadcasts");
+  revalidatePath(`/broadcasts/${broadcastId}`);
+  return result;
 }
 
 /**

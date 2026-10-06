@@ -32,7 +32,7 @@ function markAndCheckDuplicateId(id: string | undefined): boolean {
 // In-memory bounded cache for recently processed Meta status updates (wamid:status)
 const processedStatusKeys = new Set<string>();
 
-export function markAndCheckDuplicateStatus(
+function markAndCheckDuplicateStatus(
   id: string | undefined,
   status: string | undefined
 ): boolean {
@@ -334,7 +334,7 @@ export async function POST(request: Request) {
   });
 }
 
-export async function processStatusUpdate(statusUpdate: MetaStatusUpdate) {
+async function processStatusUpdate(statusUpdate: MetaStatusUpdate) {
   const { id: messageId, status, recipient_id, errors } = statusUpdate;
 
   if (!messageId || !status) {

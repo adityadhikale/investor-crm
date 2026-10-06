@@ -10,6 +10,7 @@ import {
   broadcastStatusDisplay,
 } from "@/components/broadcast-send-summary";
 import { getBroadcastDeliveryResults } from "@/lib/broadcast-delivery";
+import { RetryFailedBroadcastButton } from "@/components/retry-failed-broadcast-button";
 import type {
   GroupOption,
   ContactOption,
@@ -121,6 +122,9 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
       <div className="mt-6 max-w-4xl">
         {isSent && <BroadcastSendReport summary={broadcast.send_summary} />}
         {isSent && <BroadcastDeliveryResultsPanel results={deliveryResults} />}
+        {isSent && (broadcast.send_summary?.failed ?? 0) > 0 && (
+          <RetryFailedBroadcastButton broadcastId={id} failedCount={broadcast.send_summary?.failed ?? 0} />
+        )}
         {sendingProgress && (
           <section className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-5 text-sm">
             <h2 className="text-base font-semibold">Sending in batches</h2>

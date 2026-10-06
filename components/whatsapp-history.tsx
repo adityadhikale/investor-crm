@@ -107,26 +107,29 @@ function MessageMedia({ messageId, mediaUrl }: { messageId: string; mediaUrl: st
     );
   }
 
+  // Stored files open through the signed-in file route, so the storage bucket
+  // can stay private.
+  const fileHref = `/api/whatsapp/media/${messageId}`;
   const path = mediaUrl.split("?")[0].toLowerCase();
   if (/\.(jpe?g|png|gif|webp)$/.test(path)) {
     return (
-      <a href={mediaUrl} target="_blank" rel="noreferrer">
-        <img src={mediaUrl} alt="WhatsApp photo" className="mb-1 max-h-64 rounded-md object-cover" />
+      <a href={fileHref} target="_blank" rel="noreferrer">
+        <img src={fileHref} alt="WhatsApp photo" className="mb-1 max-h-64 rounded-md object-cover" />
       </a>
     );
   }
   if (/\.(ogg|opus|mp3|m4a|aac|amr|wav)$/.test(path)) {
-    return <audio controls preload="none" src={mediaUrl} className="mb-1 h-10 w-60 max-w-full" />;
+    return <audio controls preload="none" src={fileHref} className="mb-1 h-10 w-60 max-w-full" />;
   }
   if (/\.(mp4|3gp|mov|webm)$/.test(path)) {
     return (
-      <video controls preload="metadata" src={mediaUrl} className="mb-1 max-h-64 max-w-full rounded-md" />
+      <video controls preload="metadata" src={fileHref} className="mb-1 max-h-64 max-w-full rounded-md" />
     );
   }
   const filename = decodeURIComponent(path.split("/").pop() ?? "").replace(/^\d+-/, "");
   return (
     <a
-      href={mediaUrl}
+      href={fileHref}
       target="_blank"
       rel="noreferrer"
       className="mb-1 inline-flex max-w-full items-center gap-1.5 underline underline-offset-2"

@@ -726,6 +726,55 @@ export async function sendBroadcastBatch(
   return { success: true, ...progress };
 }
 
+/**
+ * Sends again to recipients of a finished broadcast whose send failed. Only
+ * failures where WhatsApp refused the message are retried; recipients with an
+ * invalid number, or whose send was interrupted (it may already have been
+ * delivered), are left alone so nobody gets the message twice.
+ */
+export async function retryFailedBroadcastRecipients(
+  supabase: SupabaseClient,
+  broadcastId: string
+): Promise<SendBroadcastResult> {
+  if (!broadcastId) return { error: "Broadcast ID is required." };
+
+  const { data: broadcast } = await supabase
+    .from("broadcasts")
+    .select("status")
+    .eq("id", broadcastId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!broadcast) return { error: "Broadcast not found." };
+
+  if (broadcast.status === "sent") {
+    const { data: requeued, error: requeueError } = await supabase
+      .from("broadcast_recipients")
+      .update({ status: "pending", error: null, claimed_at: null, sent_at: null })
+      .eq("broadcast_id", broadcastId)
+      .eq("status", "failed")
+      .not("error", "ilike", "Invalid phone%")
+      .not("error", "ilike", "Interrupted%")
+      .select("id");
+    if (requeueError) return { error: "Could not prepare the retry." };
+    if (!requeued || requeued.length === 0) {
+      return {
+        error:
+          "Nothing can be retried: the failed recipients have an invalid number, or their message may already have been delivered.",
+      };
+    }
+    await supabase
+      .from("broadcasts")
+      .update({ status: "sending" })
+      .eq("id", broadcastId)
+      .eq("status", "sent");
+  } else if (broadcast.status !== "sending") {
+    return { error: "Only a broadcast that has been sent can be retried." };
+  }
+
+  const progress = await processBroadcast(supabase, broadcastId, SEND_NOW_BUDGET_MS);
+  return { success: true, ...progress };
+}
+
 export interface ProcessedBroadcastResult {
   broadcastId: string;
   success: boolean;

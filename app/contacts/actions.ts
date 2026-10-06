@@ -2,7 +2,6 @@
 
 import { requireActionAuth } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import type { WhatsAppMessage } from "@/components/whatsapp-history";
 import { generateChatSummary, transcribeVoiceNoteToMeetingNote } from "@/lib/gemini";
 import {
   mimeTypeToWhatsAppMediaType,
@@ -12,14 +11,15 @@ import {
   sendWhatsAppTemplateMessage,
   uploadWhatsAppMedia,
 } from "@/lib/whatsapp";
-import { uploadWhatsAppMediaToStorage } from "@/lib/supabase-storage";
+import { createMediaUploadTarget, downloadStoredMedia, mediaUrlForPath } from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { linkUnmatchedMessages } from "@/lib/link-messages";
 import { insertOutboundMessage } from "@/lib/message-status";
 
-const MAX_IMPORT_FILE_BYTES = 15 * 1024 * 1024;
+// The live host (Netlify) rejects requests over about 6MB, so keep these under that.
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
 const DUPLICATE_PHONE_ERROR =
   "This phone number is already associated with another contact.";
@@ -307,7 +307,7 @@ export async function addMeetingNote(contactId: string, note: string) {
   return { success: true };
 }
 
-const MAX_VOICE_NOTE_BYTES = 15 * 1024 * 1024; // 15MB, leaves headroom for Gemini's base64 inline-data limit
+const MAX_VOICE_NOTE_BYTES = 5 * 1024 * 1024; // the live host rejects requests over about 6MB
 
 export type TranscribeVoiceNoteResult =
   | { success: true; transcript: string }
@@ -331,7 +331,7 @@ export async function transcribeVoiceNote(
 
   if (!file || file.size === 0) return { error: "No file selected." };
   if (file.size > MAX_VOICE_NOTE_BYTES) {
-    return { error: "File is too large. Please choose a recording under 15MB." };
+    return { error: "File is too large. Please choose a recording under 5MB." };
   }
   if (!file.type.startsWith("audio/")) {
     return { error: `Unsupported file type: ${file.type || "unknown"}. Please upload an audio file.` };
@@ -386,25 +386,6 @@ export async function getMeetingNotes(contactId: string) {
   if (error) return { error: "Meeting notes could not be loaded." };
 
   return { notes: (notes ?? []) as MeetingNote[] };
-}
-
-export async function getWhatsAppMessages(contactId: string) {
-  const { supabase, error: authError } = await requireActionAuth();
-  if (authError || !supabase) return { error: "Unauthorized" };
-
-  const normalizedContactId = contactId.trim();
-  if (!normalizedContactId) return { error: "The contact could not be found." };
-
-  const { data: messages, error } = await supabase
-    .from("whatsapp_messages")
-    .select("*")
-    .eq("contact_id", normalizedContactId)
-    .is("deleted_at", null)
-    .order("sent_at", { ascending: true });
-
-  if (error) return { error: "WhatsApp messages could not be loaded." };
-
-  return { messages: (messages ?? []) as WhatsAppMessage[] };
 }
 
 export type SendWhatsAppReplyResult =
@@ -584,15 +565,56 @@ export type SendWhatsAppMediaReplyResult =
   | { error: string };
 
 /**
- * Sends an image/document/video/audio file to a contact via WhatsApp,
- * directly from the CRM. Uploads the file to Meta to send it, and keeps a
- * copy in Supabase Storage so it can be displayed later in WhatsApp History
- * (Meta's own media URLs are short-lived and require authentication).
- * Subject to the same 24-hour customer service window as sendWhatsAppReply.
+ * Step 1 of sending a file: checks it and returns a one-time upload address so
+ * the browser can send the file straight to storage. Going around the web
+ * server avoids its request-size cap, so files up to Meta's 16 MB limit work.
  */
-export async function sendWhatsAppMediaReply(
+export async function prepareWhatsAppMediaUpload(
   contactId: string,
-  file: File,
+  filename: string,
+  mimeType: string,
+  size: number,
+): Promise<{ path: string; token: string } | { error: string }> {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) return { error: "Unauthorized" };
+
+  const normalizedContactId = contactId.trim();
+  if (!normalizedContactId) return { error: "The contact could not be found." };
+  if (!size) return { error: "No file selected." };
+  if (size > MAX_WHATSAPP_MEDIA_BYTES) {
+    return { error: "File is too large. Please choose a file under 16MB." };
+  }
+  if (!mimeTypeToWhatsAppMediaType(mimeType)) {
+    return { error: `Unsupported file type: ${mimeType || "unknown"}.` };
+  }
+
+  const { data: contact, error: contactError } = await supabase
+    .from("contacts")
+    .select("id")
+    .eq("id", normalizedContactId)
+    .maybeSingle();
+  if (contactError || !contact) return { error: "The contact could not be found." };
+
+  if (!(await isReplyWindowOpen(supabase, normalizedContactId))) {
+    return { error: REPLY_WINDOW_CLOSED_ERROR };
+  }
+
+  try {
+    return await createMediaUploadTarget(normalizedContactId, filename);
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Could not prepare the upload." };
+  }
+}
+
+/**
+ * Step 2: the file is already in storage (uploaded by the browser). Reads it,
+ * hands it to WhatsApp, sends it and records it in the chat history.
+ */
+export async function sendWhatsAppMediaFromStorage(
+  contactId: string,
+  path: string,
+  mimeType: string,
+  filename: string,
   caption?: string,
 ): Promise<SendWhatsAppMediaReplyResult> {
   const { supabase, error: authError } = await requireActionAuth();
@@ -600,23 +622,19 @@ export async function sendWhatsAppMediaReply(
 
   const normalizedContactId = contactId.trim();
   if (!normalizedContactId) return { error: "The contact could not be found." };
-
-  if (!file || file.size === 0) return { error: "No file selected." };
-  if (file.size > MAX_WHATSAPP_MEDIA_BYTES) {
-    return { error: "File is too large. Please choose a file under 16MB." };
+  // Only files uploaded for this contact by step 1 can be sent.
+  if (!path.startsWith(`${normalizedContactId}/`) || path.includes("..")) {
+    return { error: "That file isn't available for this contact." };
   }
 
-  const mediaType = mimeTypeToWhatsAppMediaType(file.type);
-  if (!mediaType) {
-    return { error: `Unsupported file type: ${file.type || "unknown"}.` };
-  }
+  const mediaType = mimeTypeToWhatsAppMediaType(mimeType);
+  if (!mediaType) return { error: `Unsupported file type: ${mimeType || "unknown"}.` };
 
   const { data: contact, error: contactError } = await supabase
     .from("contacts")
     .select("id, phone")
     .eq("id", normalizedContactId)
     .maybeSingle();
-
   if (contactError || !contact) return { error: "The contact could not be found." };
 
   if (!(await isReplyWindowOpen(supabase, normalizedContactId))) {
@@ -625,33 +643,22 @@ export async function sendWhatsAppMediaReply(
 
   let fileBuffer: Buffer;
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    fileBuffer = Buffer.from(arrayBuffer);
-  } catch {
-    return { error: "Could not read the selected file." };
-  }
-
-  let publicMediaUrl: string;
-  try {
-    publicMediaUrl = await uploadWhatsAppMediaToStorage(
-      fileBuffer,
-      file.type,
-      file.name,
-      normalizedContactId,
-    );
+    fileBuffer = await downloadStoredMedia(path);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to store the file.";
-    return { error: msg };
+    return { error: err instanceof Error ? err.message : "Could not read the uploaded file." };
+  }
+  if (fileBuffer.length === 0 || fileBuffer.length > MAX_WHATSAPP_MEDIA_BYTES) {
+    return { error: "File is too large. Please choose a file under 16MB." };
   }
 
   let wamid: string | undefined;
   try {
-    const mediaId = await uploadWhatsAppMedia(fileBuffer, file.type, file.name);
+    const mediaId = await uploadWhatsAppMedia(fileBuffer, mimeType, filename);
     const response = await sendWhatsAppMediaMessage({
       to: contact.phone,
       mediaId,
       mediaType,
-      filename: file.name,
+      filename,
       caption: caption?.trim() || undefined,
     });
     wamid = response.messages?.[0]?.id;
@@ -665,7 +672,7 @@ export async function sendWhatsAppMediaReply(
     {
       contact_id: normalizedContactId,
       message_text: caption?.trim() || null,
-      media_url: publicMediaUrl,
+      media_url: mediaUrlForPath(path),
     },
     wamid,
   );
@@ -1081,7 +1088,7 @@ export async function parseExcelFile(file: File): Promise<ParseExcelFileResult> 
 
   if (!file || file.size === 0) return { error: "No file selected." };
   if (file.size > MAX_IMPORT_FILE_BYTES) {
-    return { error: "File is too large. Please choose a file under 15MB." };
+    return { error: "File is too large. Please choose a file under 5MB." };
   }
 
   try {

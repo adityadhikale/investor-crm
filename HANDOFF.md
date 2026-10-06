@@ -1,9 +1,9 @@
 # CREST CRM — HANDOFF / CONTEXT
-## Updated: 3 October 2026 (evening)
+## Updated: 6 October 2026
 
 You are continuing development of an internal single-user Investor CRM for CREST Capital Management. This document is the source of truth for context — read it fully before suggesting any changes.
 
-**CURRENT PHASE:** the security/performance pass (old §10) is **done**, and a large batch of WhatsApp, broadcast, email and backup features was added on 3 Oct (see §4). Next: finish the open items in §9, then **step-wise testing** from a list Aditya will provide (§11).
+**CURRENT PHASE:** the build is feature-complete for now. On 5–6 Oct a second large batch was added (§4, items 18–29): PDF auto-reply, loading screens, Brevo email, duplicate protection, broadcast delivery results + retry, the final tag list, owner checks, error pages, direct file uploads with signed links, merged detail components. **Open: deploy the latest push and run the pending SQL (§3), then the Meta billing / Business Verification blocker (§5).** The three `CRM_*_DOCUMENTATION` files (.md and .docx) and `CREST-CRM-PRD.docx` in the project root are snapshots from early 6 Oct and are slightly behind items 21–29; they are not committed.
 
 IMPORTANT:
 - The project is substantially built. DO NOT rebuild existing functionality.
@@ -27,7 +27,7 @@ IMPORTANT:
 - Restore point before the 3 Oct work: tag `pre-optimization-2026-10-03` (on both remotes).
 - Supabase project ref: `fyesxkvfgwurejqsobdq` (free plan: 500 MB database, 1 GB storage, **no downloadable backups** — hence §4 backups).
 - Windows machine; no Python (use `node`). Repo files use CRLF. **Bash heredocs in this environment mangle backslashes and can break on apostrophes** — write scripts/long code to a scratch file with the Write tool and run/append with `node`.
-- Dev server: `investor-crm-dev` in `.claude/launch.json` (port 3000). It sometimes stops (e.g. after network drops or package changes) — restart it.
+- Dev server: `investor-crm-dev` in `.claude/launch.json` (port 3000), started with the preview tool (`preview_start`) or `npm run dev`. It sometimes stops (network drops, package changes) — restart it. **Don't run `npm run build` while the dev server is running**: both write to `.next` and the dev server's workers crash ("Jest worker encountered 2 child process exceptions") or its generated types get corrupted. Fix: stop the dev server, delete the `.next` folder, start it again. `npx tsc --noEmit` errors under `.next/dev/types` mean the same corruption, not a code bug.
 - The in-app browser pane can log in to **localhost** but **cannot log in to the live site** (it blocks `*.supabase.co`). Aditya tests the live site in his own browser and sends screenshots.
 
 ---
@@ -35,12 +35,12 @@ IMPORTANT:
 # 2. TECH STACK
 
 - Next.js **16.3.8** (patched for GHSA-vcvr-r3jv-pc5j), App Router, TypeScript, Turbopack; React 19.2.8.
-- Supabase Postgres + Auth + Storage. Buckets: `whatsapp-media` (**public**; outgoing files and `inbound/<mediaId>.<ext>` incoming files) and `backups` (**private**, created by the first backup).
+- Supabase Postgres + Auth + Storage. Buckets: `whatsapp-media` (outgoing files at `<contactId>/<ts>-<name>` and incoming `inbound/<mediaId>.<ext>`; **public until migration `20261006020000` is run after the deploy, then private** — files are always opened through `/api/whatsapp/media/[id]`, which signs a short-lived link) and `backups` (**private**, created by the first backup).
 - shadcn/ui on Base UI (all dropdowns use the app's `Select`; no native `<select>` left), Tailwind v4, date-fns, react-day-picker, recharts.
 - Meta WhatsApp Cloud API (direct). Graph API v25.0 in code.
 - Google Gemini (`gemini-3.6-flash`, fallback `gemini-flash-lite-latest`) for AI summary, follow-up suggestion, voice-note transcription.
-- **Resend** for email (configured 3 Oct). `exceljs` for imports.
-- `proxy.ts` protects routes; every private page also calls `requireAuth()`; every server action calls `requireActionAuth()`.
+- Email: `lib/resend.ts` sends through **Brevo** when `BREVO_API_KEY` + `BREVO_SENDER_EMAIL` are set (must be a v3 **API key** starting `xkeysib-`, NOT an SMTP key `xsmtpsib-`; in Brevo → Security → Authorised IPs, blocking for **API keys must stay deactivated** because Netlify's IPs change), otherwise **Resend** (can only email the Resend account owner until a domain is verified). `exceljs` for imports.
+- `proxy.ts` protects every private page (incl. broadcasts, templates, unread-messages); every private page also calls `requireAuth()`; every server action calls `requireActionAuth()`; service-role actions (backups, test reminder) call `requireOwnerAction()` (checks `is_crm_owner()`).
 - Security headers in `next.config.ts` (nosniff, Referrer-Policy, X-Frame-Options DENY, Permissions-Policy). No CSP yet.
 - Font `public/fonts/Maharlika-Regular.ttf` for the logo (licence for commercial use **unconfirmed**). Geist Mono and Playfair are not preloaded.
 
@@ -48,25 +48,27 @@ IMPORTANT:
 
 # 3. DATABASE & SECURITY
 
-**Tables:** `contacts`, `groups`, `contact_groups`, `interactions`, `follow_ups`, `whatsapp_messages`, `broadcasts`, `broadcast_recipients`, `templates`, `app_settings`.
+**Tables:** `contacts`, `groups`, `contact_groups`, `interactions`, `follow_ups`, `whatsapp_messages`, `broadcasts`, `broadcast_recipients`, `templates`, `app_settings`. Their original CREATE TABLEs are recorded (idempotent, reference only) in `supabase/migrations/20260101000000_baseline_schema.sql`.
 
 Notable columns / rules:
-- `contacts`: soft delete (`deleted_at`) for **both** single and bulk delete (bulk was hard delete until 3 Oct). Email is **optional**. Phones stored as digits; Indian numbers as 10 digits, `+91` added at send time; foreign numbers kept whole (e.g. a UAE `971…` contact exists).
-- `whatsapp_messages`: + `phone` (sender's number, local form) and `profile_name` (sender's WhatsApp name) — used for unknown numbers. `media_url` is our own stored copy; old/failed ones may be `meta_media_id:<id>` or a Meta lookaside URL (see `lib/media-ref.ts`).
+- **Tags** (`lib/tags.ts`, one list): Existing PMS Investors, Existing RIA Investors, Shareholders, FMS, EO, GRI, Miscellaneous, IFA, Distributors, Leads — nothing else is offered. A contact can have several; add via the "+" in Contact Details (dialog), remove via a tag's ✕ (with a confirmation window), the edit form keeps the other tags. The Investors page/count shows contacts with `Existing PMS Investors` or `Existing RIA Investors` (`INVESTOR_TAGS`, `.overlaps`).
+- `contacts`: soft delete (`deleted_at`) for **both** single and bulk delete (bulk was hard delete until 3 Oct). Email is **optional**. Phones are saved and compared in one canonical form (`normalizeToLocalPhone`): `919876543210`, `+91 98765 43210`, `09876543210` and `9876543210` are the same number; Indian numbers are 10 digits (`+91` added at send time), foreign numbers kept whole.
+- `whatsapp_messages`: **every message now stores its WhatsApp message ID `wamid`** (inbound too; duplicates are skipped by ID; a unique partial index makes it a hard rule once `20261006000000` is applied). + `phone` (sender's number, local form) and `profile_name` (sender's WhatsApp name) — used for unknown numbers. `media_url` is our own stored copy; old/failed ones may be `meta_media_id:<id>` or a Meta lookaside URL (see `lib/media-ref.ts`).
 - `broadcasts`: status `draft | scheduled | sending | sent` (check constraint), `template_id`, `variable_mappings`, `send_summary` jsonb (counts + skipped names + failures).
-- `broadcast_recipients`: one row per recipient (`pending → sending → sent | skipped | failed`), unique `(broadcast_id, contact_id)`; claimed in batches by SQL function `claim_broadcast_recipients(p_broadcast_id, p_limit)` (FOR UPDATE SKIP LOCKED).
+- `broadcast_recipients`: + `wamid` (the recipient's WhatsApp message ID, used for the "After sending" results). One row per recipient (`pending → sending → sent | skipped | failed`), unique `(broadcast_id, contact_id)`; claimed in batches by SQL function `claim_broadcast_recipients(p_broadcast_id, p_limit)` (FOR UPDATE SKIP LOCKED).
 - `templates`: `meta_template_id`, `approved_at`, `language`, `variables` (sample values). Rows with `meta_template_id` are Meta templates (view-only in the CRM); without it, CRM-only templates.
 - `app_settings` (single row `default`): reminder email on/off, recipient, include follow-ups/unread; bell preferences.
 - `unread_conversations()` SQL function: contacts with inbound messages newer than `last_read_at` and our last outbound.
 
-**Migrations — all applied by Aditya as of 3 Oct 2026:**
-`20260929000000_add_notes_to_contacts`, `20260930000000_add_unread_messages`, `20260930010000_add_app_settings`, `20261002000000_lock_down_to_owner`, `20261003000000_add_performance_indexes`, `20261003010000_add_phone_to_whatsapp_messages` (phone + profile_name), `20261003020000_add_send_summary_to_broadcasts`, `20261003030000_add_broadcast_recipients` (table, `sending` status, claim function).
+**Migrations — applied by Aditya through 4 Oct unless marked:**
+`20260929000000_add_notes_to_contacts`, `20260930000000_add_unread_messages`, `20260930010000_add_app_settings`, `20261002000000_lock_down_to_owner`, `20261003000000_add_performance_indexes`, `20261003010000_add_phone_to_whatsapp_messages` (phone + profile_name), `20261003020000_add_send_summary_to_broadcasts`, `20261003030000_add_broadcast_recipients` (table, `sending` status, claim function), `20261004000000_add_message_delivery_status` (`whatsapp_messages.wamid`, `status`, `status_error`, `status_at`).
+Added 6 Oct: `20260101000000_baseline_schema` (reference only, safe no-op), `20261006000000_unique_whatsapp_wamid` (**confirm it was run**), `20261006010000_add_wamid_to_broadcast_recipients` (**applied**), `20261006020000_make_whatsapp_media_private` (**PENDING — run only AFTER the matching deploy**, otherwise chat images stop loading; undo = set `public = true`).
 
 **Row-level security:** every table (including `broadcast_recipients`) has one policy "Owner only" → `public.is_crm_owner()` (user id `ff04929a-ae33-454b-8f18-0c81a4059022`, login `test@example.com`). **Supabase public sign-up is disabled** — keep it off. The service-role key (`lib/supabase-service.ts`) bypasses RLS and is used by the webhook, scheduled jobs and backup/storage code. Never use the anon key server-side without a session.
 
-**Env vars** (both `.env.local` and Netlify): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `META_APP_SECRET`, `SCHEDULER_SECRET`, `GEMINI_API_KEY`, `REMINDER_EMAIL_TO`, `RESEND_API_KEY` (sending-only key), `RESEND_FROM_EMAIL` (= `CREST CRM <onboarding@resend.dev>` until the domain is verified). `netlify.toml` omits expected secrets-scan hits (public Supabase keys, `REMINDER_EMAIL_TO`, the Turbopack cache, and `HANDOFF.md` which names WhatsApp IDs).
+**Env vars** (both `.env.local` and Netlify): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_BUSINESS_ACCOUNT_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `META_APP_SECRET`, `SCHEDULER_SECRET`, `GEMINI_API_KEY`, `REMINDER_EMAIL_TO`, `RESEND_API_KEY` (sending-only key), `RESEND_FROM_EMAIL` (= `CREST CRM <onboarding@resend.dev>` until the domain is verified), `BREVO_API_KEY` + `BREVO_SENDER_EMAIL` (set 6 Oct; reminder email now sends via Brevo from the verified sender; optional `BREVO_SENDER_NAME`). `netlify.toml` omits expected secrets-scan hits (public Supabase keys, `REMINDER_EMAIL_TO`, the Turbopack cache, and `HANDOFF.md` which names WhatsApp IDs).
 
-**Current data (3 Oct):** 5 contacts (Aditya Dhikale, Aditya Dhikale (UAE), Ali, Atharva Sirsalewala, Vedant), a few test broadcasts, 2 templates (`crm_welcome` CRM-only; `investor_invitation` Meta, pending), 1 follow-up. Aditya's ~1518 contacts still need re-importing (§9).
+**Current data (6 Oct):** about 1,524 contacts (almost all tagged `Leads`), test broadcasts, templates `crm_welcome` (CRM-only) and `crest_inital_invitation` (Meta, approved; Meta's spelling), plus follow-ups. Aditya said he will delete the contact data and re-import; do not rely on or protect the current rows.
 
 ---
 
@@ -89,6 +91,25 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 12. **Nightly backups** at 3:00 AM IST (`netlify/functions/daily-backup.mts` → `/api/backup/trigger`, `lib/backup.ts`): all tables incl. soft-deleted rows, gzipped, private `backups` bucket, 30-day retention. My Profile lists them (signed download links) with "Back up now". No in-app Restore — restore manually from a backup if ever needed.
 13. **Follow-ups for every contact** (investor-only rule removed). **Email optional** for contacts. **Bulk delete is soft.** Neutral sample contact in the broadcast preview.
 
+## Added 4–5 Oct 2026
+14. **WhatsApp delivery status tracking** (`lib/message-status.ts`): every outgoing message (chat reply, file, template send, broadcast) saves Meta's message ID (`wamid`) with status `sent`; the webhook applies Meta's delivery reports (delivered/read/failed + error code; a message never moves backwards, a failure is final). Common error codes get plain-language reasons (131049 marketing limit, 131026 not on WhatsApp, 131042 payment problem…). Chat bubbles show ticks (✓ sent, ✓✓ delivered, blue ✓✓ read) or a red "Not delivered" with the reason. Messages sent before 4 Oct have no status. Tested with fake signed status reports, and for real (it caught the 131042 payment error on Vedant's message).
+15. **Notification bell dismissal** (`components/notification-bell.tsx`): opening an item, its ✕, or "Clear all" dismisses it on that device (localStorage; key includes the item's last-activity time so new activity re-shows it). The red count drops with dismissed items that needed action. Dismissed follow-ups stay pending on the dashboard and in the email.
+16. **Dropdown fix**: the shared `Select` menu now uses z-index 100 so it opens above full-screen layers (CSV import mapping screen is `fixed z-[60]`).
+17. **Privacy policy page** uses the company address **info@crest-group.co** and has an 11. Contact us section (company name, https://www.crest-capital.com, registered office). The company's own long policy document lists `ig@crest-group.co` and covers KYC/AA/portfolio management — the CRM page deliberately describes only what the CRM does. No personal name/email anywhere in the app.
+
+## Added 5–6 Oct 2026
+18. **PDF auto-reply** (`lib/auto-reply.ts`, called from the webhook after an inbound `button` message is saved): tapping **"Send details first"** on a message we sent whose saved text contains "CREST Family Office Advisory" (checked by the replied-to `wamid`) sends `public/crest-company-details.pdf` as a WhatsApp document by link (`https://investor-crm.netlify.app/...`). Only that button, only that template. Needs the template approved + synced and sent from the CRM so its `wamid` is logged. Not yet tested live.
+19. **Loading screens**: `components/loading-screen.tsx` (one-colour animated bars, follows the theme) used by a `loading.tsx` in every route folder (a single root file does not show between sibling routes). Next 16: error boundaries get `retry`, not `reset`.
+20. **Email via Brevo** (see §2). Reminder email verified working; Gmail shows a warning banner until `crest-group.co` is authenticated in Brevo (DNS).
+21. **Duplicate protection**: canonical phone comparison for add/edit/import; webhook skips a message whose `wamid` is already stored, stores inbound `wamid`, treats a unique-violation as a duplicate, and **answers 500 when a message can't be saved so Meta retries** (safe because of the ID check); outbound/echo race handled in `insertOutboundMessage`.
+22. **Broadcasts**: status badge says "Not delivered / Nobody reached / Partly sent" when appropriate; a `sending` broadcast can't be deleted; **"After sending" panel** (`lib/broadcast-delivery.ts`) shows delivered/read/waiting/not delivered per person from WhatsApp's reports, with a red **billing-problem banner** for code 131042; **"Retry failed"** button (`retryFailedBroadcastRecipients`) resends only recipients WhatsApp refused (never invalid numbers or "interrupted" ones, to avoid double sends).
+23. **Templates sync** now hides CRM copies of Meta templates that were deleted at Meta (CRM-only templates untouched).
+24. **Security/robustness**: `requireOwnerAction()` on backup + test-reminder actions; `proxy.ts` covers all private pages; friendly `app/error.tsx`, `app/not-found.tsx`, `app/global-error.tsx`; plain-language server errors (details go to the log); delete messages no longer promise a restore.
+25. **Files**: the browser uploads attachments straight to Supabase Storage via a signed upload target (`prepareWhatsAppMediaUpload` → storage → `sendWhatsAppMediaFromStorage`), so the ~6 MB Netlify request cap no longer applies to chat files (16 MB Meta limit applies). Excel import and voice-note upload still go through server actions, so they are capped at **5 MB**. The chat opens every stored file through `/api/whatsapp/media/[id]` (signed link), which is what lets the bucket be private.
+26. **Add Tag bug fixed** (one state was used for both "dialog open" and "saving").
+27. **Merged components**: `components/investor-detail.tsx` is now a thin wrapper around `ContactDetail variant="investor"`; dead code removed (`getWhatsAppMessages`, unused webhook exports).
+28. **Documents** (not committed): `CRM_FRONTEND_DOCUMENTATION`, `CRM_BACKEND_DOCUMENTATION`, `CRM_DATABASE_DOCUMENTATION` (.md + .docx) and `CREST-CRM-PRD.docx`; generated 6 Oct, before items 21–27 were finished.
+
 ---
 
 # 5. META / WHATSAPP SETUP
@@ -97,8 +118,10 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 - WhatsApp Business Account "Crest Investment Management" `1092796546468247`. Number **+91 91374 09245**, Phone Number ID `1352056234657893`, CONNECTED/GREEN.
 - `WHATSAPP_ACCESS_TOKEN`: System User token, never expires, can send messages and read/manage templates. After any app-secret reset, regenerate it and update `.env.local` + Netlify, then redeploy.
 - Webhook: `https://investor-crm.netlify.app/api/whatsapp/webhook`, field `messages`, verify token `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, signature checked with `META_APP_SECRET`.
-- Templates: `investor_invitation` (Marketing, `en`, `{{1}}` = first name, quick replies "Yes, tell me more" / "Not now") **PENDING** at Meta when last checked. `hello_world` only works from Meta test numbers (error 131058) — skipped by sync.
-- Template messages cost money: a **payment method** must be added in WhatsApp Manager.
+- Templates: `crest_inital_invitation` (Marketing, approved; body variable `{{1}}` = first name; "Dear {{1}}, This is Girish, founder of Crest Capital…", quick replies Share available slots / Send details first / Not interested — the 2nd submission may still be in review) is synced into the CRM. `investor_invitation` was deleted at Meta (the sync now removes it from the CRM). `hello_world` only works from Meta test numbers (error 131058) — skipped by sync.
+- **CURRENT BLOCKER (5 Oct): Meta billing.** Marketing templates to people outside the 24-hour window fail with **error 131042 "payment problem"** (reported by Meta ~7 s after sending; visible in the chat). Adding funds / a payment method (UPI) in Business Manager → Billing & payments → Payment methods → WhatsApp Business accounts → "Crest Investment Management (1092796546468247…)" fails with "Unable to add funds — we've noticed something unusual… try again in 24 hours" (security hold, repeated on 4 and 5 Oct; Meta's chat claimed "postpay, just add a card" but the UPI flow goes straight to a prepaid "Add to balance" screen). Meta's health check says the **business is LIMITED: error 141010 "business has not passed business verification"** (WABA and app are AVAILABLE; tier `TIER_250`, number CONNECTED/GREEN). Next steps for Aditya: one retry later (₹500–1,000 via UPI), open a human billing support case, and **start Business Verification** (Business Settings → Security Center). Free paths still work (replies/CRM templates/broadcasts inside the 24-hour window).
+- **System-user permission lesson (5 Oct):** the CRM token belongs to system user **"Employee"**. It must stay assigned to WhatsApp account **Crest Investment Management (1092796546468247)** with **full control** (Business Settings → Accounts → WhatsApp accounts → People, or Users → System users → Employee → Add assets). It lost that access on 5 Oct → every send returned **"Authorization Error" (OAuthException 100)** and the token could only see the "Test WhatsApp Business Account"; re-assigning it fixed it with the same token. Safe check without messaging anyone: POST a template send with a made-up template name to `/{PHONE_NUMBER_ID}/messages` — "(#132001) Template name does not exist" means auth is fine; `debug_token` and `GET /{WABA}?fields=health_status` are also useful.
+- There are two WhatsApp accounts named "Crest Investment Management" (`1092796546468247` = the one in use; the other starts `1409201257…`) plus two "Test WhatsApp Business Account"s. Only add billing to the one in use.
 - Open Meta problems (not code): restricted portfolio `1066955262606783`; old WhatsApp account `1755324759049717` not visible; unclear which portfolio is "verified"; support case open. Don't onboard the boss's number (Coexistence) until resolved.
 
 ---
@@ -112,13 +135,13 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 
 # 7. KNOWN LIMITATIONS / GAPS
 
-1. **No delivery status**: "sent" = accepted by Meta. Delivered/read/failed webhook statuses are only logged (no wamid stored). Candidate next feature (ticks in chat).
+1. Delivery results per broadcast recipient exist from 6 Oct on (item 22); broadcasts sent earlier have no saved message IDs and show no "After sending" panel.
 2. **Meta limits**: unverified business ≈ 250 new conversations/day; template broadcasts above that will fail per recipient (shown in the delivery report).
 3. **Broadcast speed**: Send Now ≈ 250 recipients per request (~4–6 min for 1,500 with the page open); scheduler alone ≈ 130 per 5-min run.
-4. `whatsapp-media` bucket is **public** (anyone with a link can open files). Making it private needs signed URLs — ask Aditya first.
+4. `whatsapp-media` is private only after migration `20261006020000` is run (after the deploy). Old public links stop working at that point.
 5. Backups live in the same Supabase project — also download one occasionally.
 6. Deleting contacts can leave a group empty; CSV import doesn't validate tags.
-7. Pre-existing lint warning: `<img>` in `components/whatsapp-history.tsx`.
+7. Chat messages that fail to send are not retried automatically (resend manually); only failed broadcast recipients have a Retry button. Not covered: no contact restore UI (soft-deleted contacts stay in the database), groups can still end up empty, tags are not validated on CSV import, 15 MB+ voice notes/Excel files are refused (5 MB cap). Pre-existing lint warning: `<img>` in `components/whatsapp-history.tsx`.
 8. Netlify injects a toolbar script that causes a harmless React #418 console error on the live site.
 9. Messages from unknown numbers received **before** 3 Oct have no phone stored and can't be linked automatically.
 
@@ -134,10 +157,12 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 
 # 9. ROADMAP / NEXT STEPS
 
-- ⏳ **Media test**: Aditya to send a new photo, voice note and PDF; confirm `media_url` is a stored `inbound/…` copy (one repaired photo already works).
+- ⏳ **Meta billing / verification (blocker, see §5)**: add a payment method (UPI) once Meta's hold lifts, open a human billing case if it persists, start Business Verification. After it works, resend `investor_invitation` to Vedant (9579125718) from his chat on the **live** site and check the tick/"Not delivered" result. Vedant's tests at 12:38 PM (untracked), 1:03 PM and 1:55 PM on 4 Oct all failed with 131042. **Do not keep resending until billing is fixed.**
+- ⏳ **After deploying the 6 Oct push**: run `20261006000000` if not yet run, then (after the deploy is live) `20261006020000`; send one real attachment from a chat and open one old image to confirm files still load; send a broadcast to Aditya only and check the "After sending" panel; once the "Send details first" template is approved and synced, tap the button on a test number and check the PDF arrives.
+- ⏳ **Media test (inbound)**: Aditya to send a new photo, voice note and PDF to +91 91374 09245; confirm `media_url` is a stored `inbound/…` copy. Needs the system user permission in §5 intact.
 - ✅ **Privacy policy contact** is now `info@crest-group.co` (5 Oct). Make sure that mailbox really receives mail: Meta's app settings point at `https://investor-crm.netlify.app/privacy-policy#data-deletion`. The company-wide policy document (Customer Privacy Protection Policy) is broader than this CRM page and lists `ig@crest-group.co`; the CRM page deliberately describes only what the CRM does.
 - ⏳ Aditya: change the CRM login password (shared in chat); Meta template approval + payment method + business verification + support case; Resend domain `crest-group.co` (DNS at GoDaddy in an account Aditya doesn't have — ask whoever set up Google Workspace; then set `RESEND_FROM_EMAIL` to `CREST CRM <reminders@crest-group.co>`); re-import contacts; confirm the Maharlika font licence.
-- Optional builds: delivery ticks (store wamid + status from webhook), private media bucket, restore-from-backup button, group-empty guard, tag validation on import.
+- Optional builds: automatic retry for failed chat sends, restore-from-backup / restore-contact UI, group-empty guard, tag validation on import, per-message idempotency for scheduler email, `ig@` vs `info@` alignment with the company policy document, regenerate the CRM_*_DOCUMENTATION files to include items 21–27, authenticate `crest-group.co` in Brevo (DNS) to remove the Gmail warning.
 - Then §11 testing.
 
 Do NOT start a "Recently Deleted" restore UI, or onboard the boss's real number, without Aditya explicitly asking.
