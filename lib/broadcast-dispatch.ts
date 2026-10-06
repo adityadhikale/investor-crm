@@ -469,15 +469,27 @@ async function sendToRecipient(
   recipient: RecipientRow,
   openWindowIds: Set<string> | null
 ): Promise<void> {
-  const finish = (status: "sent" | "skipped" | "failed", error: string | null = null) =>
-    supabase
+  const finish = async (
+    status: "sent" | "skipped" | "failed",
+    error: string | null = null,
+    wamid?: string
+  ) => {
+    const fields = {
+      status,
+      error,
+      sent_at: status === "sent" ? new Date().toISOString() : null,
+    };
+    const result = await supabase
       .from("broadcast_recipients")
-      .update({
-        status,
-        error,
-        sent_at: status === "sent" ? new Date().toISOString() : null,
-      })
+      .update(wamid ? { ...fields, wamid } : fields)
       .eq("id", recipient.id);
+    // Until the add_wamid_to_broadcast_recipients migration is run, the column
+    // doesn't exist; record the outcome without it rather than losing it.
+    if (result.error && wamid && /wamid/i.test(result.error.message)) {
+      return supabase.from("broadcast_recipients").update(fields).eq("id", recipient.id);
+    }
+    return result;
+  };
 
   // Plain text only reaches contacts inside their 24-hour reply window.
   if (openWindowIds && !(recipient.contact_id && openWindowIds.has(recipient.contact_id))) {
@@ -530,7 +542,7 @@ async function sendToRecipient(
     return;
   }
 
-  await finish("sent");
+  await finish("sent", null, wamid);
 
   // Log it so it shows in WhatsApp History. The message already went out, so
   // a logging failure doesn't count against the recipient.

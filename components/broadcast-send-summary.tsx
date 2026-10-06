@@ -1,4 +1,5 @@
 import type { BroadcastSendSummary } from "@/lib/broadcast-dispatch";
+import type { BroadcastDeliveryResults } from "@/lib/broadcast-delivery";
 
 /**
  * What to show as a broadcast's status. A broadcast is stored as "sent" once
@@ -37,6 +38,69 @@ export function BroadcastSendCounts({ summary }: { summary?: BroadcastSendSummar
       )}
       {summary.failed > 0 && <span className="text-destructive"> · {summary.failed} failed</span>}
     </span>
+  );
+}
+
+/** What WhatsApp reported after the messages were accepted: delivered, read, failed. */
+export function BroadcastDeliveryResultsPanel({ results }: { results?: BroadcastDeliveryResults | null }) {
+  if (!results) return null;
+  const reached = results.delivered + results.read;
+
+  return (
+    <section className="mb-6 rounded-lg border bg-background p-5 text-sm">
+      <h2 className="text-base font-semibold">After sending</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        What WhatsApp reported for the {results.tracked} accepted message
+        {results.tracked === 1 ? "" : "s"}. This fills in over the next minutes; refresh the page to update.
+      </p>
+
+      {results.billingProblem && (
+        <p className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 font-medium text-red-700 dark:text-red-300">
+          WhatsApp billing problem: some messages were not delivered because Meta stopped them
+          (code 131042). Fix the payment method in WhatsApp Manager, then send again.
+        </p>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Delivered</p>
+          <p className="text-lg font-semibold">{reached}</p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Read</p>
+          <p className="text-lg font-semibold">{results.read}</p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Waiting for a report</p>
+          <p className="text-lg font-semibold">{results.waiting}</p>
+        </div>
+        <div className="rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">Not delivered</p>
+          <p className={`text-lg font-semibold ${results.failed > 0 ? "text-destructive" : ""}`}>
+            {results.failed}
+          </p>
+        </div>
+      </div>
+
+      {results.failed > 0 && (
+        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+          <p className="font-medium text-destructive">Not delivered ({results.failed})</p>
+          <ul className="mt-2 space-y-1">
+            {results.failures.map((failure, index) => (
+              <li key={index}>
+                <span className="font-medium">{failure.name}</span>
+                <span className="text-muted-foreground">: {failure.reason}</span>
+              </li>
+            ))}
+          </ul>
+          {results.failed > results.failures.length && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              and {results.failed - results.failures.length} more
+            </p>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
