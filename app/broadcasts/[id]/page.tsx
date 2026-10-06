@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireAuth } from "@/lib/auth";
 import { BroadcastEditor } from "@/components/broadcast-editor";
-import { BroadcastSendReport } from "@/components/broadcast-send-summary";
+import { BroadcastSendReport, broadcastStatusDisplay } from "@/components/broadcast-send-summary";
 import type {
   GroupOption,
   ContactOption,
@@ -98,7 +98,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
                 : "Edit Broadcast"}
             </h1>
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium capitalize text-muted-foreground">
-              {broadcast.status}
+              {broadcastStatusDisplay(broadcast.status, broadcast.send_summary).label}
             </span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">

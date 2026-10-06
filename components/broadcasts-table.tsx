@@ -11,7 +11,7 @@ import {
   type BroadcastData,
 } from "@/app/broadcasts/actions";
 import { Button } from "@/components/ui/button";
-import { BroadcastSendCounts } from "@/components/broadcast-send-summary";
+import { BroadcastSendCounts, broadcastStatusDisplay } from "@/components/broadcast-send-summary";
 import { useToast } from "@/components/toast-provider";
 import {
   Dialog,
@@ -291,16 +291,10 @@ export function BroadcastsTable({
                       <div className="flex flex-col gap-1 items-start">
                         <span
                           className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
-                            broadcast.status === "sent"
-                              ? "bg-green-500/10 text-green-600 dark:text-green-400"
-                              : broadcast.status === "scheduled"
-                              ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                              : broadcast.status === "sending"
-                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                              : "bg-muted text-muted-foreground"
+                            broadcastStatusDisplay(broadcast.status, broadcast.send_summary).className
                           }`}
                         >
-                          {broadcast.status}
+                          {broadcastStatusDisplay(broadcast.status, broadcast.send_summary).label}
                         </span>
                         {broadcast.status === "sent" && (
                           <BroadcastSendCounts summary={broadcast.send_summary} />

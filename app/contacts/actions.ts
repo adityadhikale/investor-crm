@@ -880,15 +880,15 @@ function isValidDate(value: string) {
 }
 
 function validateImportRow(row: ImportContactRow) {
-  if (!row.name || !row.phone || !row.email) {
-    return "Name, phone, and email are required.";
+  if (!row.name || !row.phone) {
+    return "Name and phone are required.";
   }
 
   if (!/^\d{7,15}$/.test(row.phone)) {
     return "Phone must contain 7-15 digits.";
   }
 
-  if (!isValidEmail(row.email)) {
+  if (row.email && !isValidEmail(row.email)) {
     return "Please enter a valid email address.";
   }
 

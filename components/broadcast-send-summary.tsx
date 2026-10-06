@@ -1,5 +1,31 @@
 import type { BroadcastSendSummary } from "@/lib/broadcast-dispatch";
 
+/**
+ * What to show as a broadcast's status. A broadcast is stored as "sent" once
+ * every recipient has been handled, even if nobody was reached, so the label
+ * says so instead of a green "sent".
+ */
+export function broadcastStatusDisplay(
+  status: string,
+  summary?: BroadcastSendSummary | null,
+): { label: string; className: string } {
+  if (status === "sent" && summary && summary.total > 0) {
+    if (summary.sent === 0) {
+      return {
+        label: summary.failed > 0 ? "Not delivered" : "Nobody reached",
+        className: "bg-red-500/10 text-red-600 dark:text-red-400",
+      };
+    }
+    if (summary.failed > 0) {
+      return { label: "Partly sent", className: "bg-amber-500/10 text-amber-600 dark:text-amber-400" };
+    }
+  }
+  if (status === "sent") return { label: "sent", className: "bg-green-500/10 text-green-600 dark:text-green-400" };
+  if (status === "scheduled") return { label: status, className: "bg-blue-500/10 text-blue-600 dark:text-blue-400" };
+  if (status === "sending") return { label: status, className: "bg-amber-500/10 text-amber-600 dark:text-amber-400" };
+  return { label: status, className: "bg-muted text-muted-foreground" };
+}
+
 /** One-line counts for the Broadcasts list, e.g. "4 sent · 1 skipped". */
 export function BroadcastSendCounts({ summary }: { summary?: BroadcastSendSummary | null }) {
   if (!summary) return null;
@@ -21,6 +47,11 @@ export function BroadcastSendReport({ summary }: { summary?: BroadcastSendSummar
   return (
     <section className="mb-6 rounded-lg border bg-background p-5 text-sm">
       <h2 className="text-base font-semibold">Delivery</h2>
+      {summary.total > 0 && summary.sent === 0 && (
+        <p className="mt-2 rounded-md border border-red-500/30 bg-red-500/10 p-3 font-medium text-red-700 dark:text-red-300">
+          This broadcast did not reach anyone. See the skipped and failed lists below.
+        </p>
+      )}
       <p className="mt-1 text-muted-foreground">
         Sent to {summary.sent} of {summary.total} recipient{summary.total === 1 ? "" : "s"}
         {summary.skipped > 0 && `, ${summary.skipped} skipped`}

@@ -370,10 +370,20 @@ export async function deleteBroadcast(id: string) {
     return { error: "Broadcast ID is required." };
   }
 
+  const { data: current } = await supabase
+    .from("broadcasts")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (current?.status === "sending") {
+    return { error: "This broadcast is still sending. Wait until it finishes before deleting it." };
+  }
+
   const { error } = await supabase
     .from("broadcasts")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .neq("status", "sending");
 
   if (error) {
     return { error: error.message || "Failed to delete broadcast." };
@@ -394,17 +404,24 @@ export async function deleteBroadcasts(ids: string[]) {
     return { error: "No broadcasts were selected." };
   }
 
-  const { error } = await supabase
+  const { data: deletedRows, error } = await supabase
     .from("broadcasts")
     .update({ deleted_at: new Date().toISOString() })
-    .in("id", broadcastIds);
+    .in("id", broadcastIds)
+    .neq("status", "sending")
+    .select("id");
 
   if (error) {
     return { error: error.message || "Failed to delete broadcasts." };
   }
 
+  const deleted = deletedRows?.length ?? 0;
+  if (deleted === 0) {
+    return { error: "Broadcasts that are still sending can't be deleted. Try again once they finish." };
+  }
+
   revalidatePath("/broadcasts");
-  return { success: true, deleted: broadcastIds.length };
+  return { success: true, deleted };
 }
 
 /**

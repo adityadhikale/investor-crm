@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       // Large Excel/CSV contact imports can exceed the 1MB default.
-      bodySizeLimit: "15mb",
+      bodySizeLimit: "17mb",
     },
   },
   async headers() {

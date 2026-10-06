@@ -243,7 +243,13 @@ export function ContactDetailsDialog({
     formData.set("name", trimmedName);
     formData.set("phone", trimmedPhone);
     formData.set("email", trimmedEmail ? trimmedEmail.toLowerCase() : "");
-    formData.set("tags", JSON.stringify(tag.trim() ? [tag.trim()] : []));
+    // The form edits only the main (first) tag; keep the contact's other tags.
+    const mainTag = tag.trim();
+    const otherTags = (currentContact.tags ?? [])
+      .slice(1)
+      .filter((existing) => existing.toLowerCase() !== mainTag.toLowerCase());
+    const nextTags = mainTag ? [mainTag, ...otherTags] : otherTags;
+    formData.set("tags", JSON.stringify(nextTags));
     formData.set("dateSaved", dateSaved);
     formData.set("notes", trimmedNotes);
 
@@ -252,7 +258,7 @@ export function ContactDetailsDialog({
     setSaving(false);
 
     if (result.error) {
-      toast("Failed to update contact", "error");
+      toast(result.error || "Failed to update contact", "error");
       return;
     }
 
@@ -261,7 +267,7 @@ export function ContactDetailsDialog({
       name: trimmedName,
       phone: trimmedPhone,
       email: trimmedEmail ? trimmedEmail.toLowerCase() : null,
-      tags: tag.trim() ? [tag.trim()] : [],
+      tags: nextTags,
       date_saved: dateSaved || null,
       notes: trimmedNotes || null,
     });

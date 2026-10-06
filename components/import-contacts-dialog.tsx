@@ -39,7 +39,7 @@ type MappedRow = ImportContactRow & { error?: string };
 const CONTACT_FIELDS: Array<{ value: ContactField; label: string; required: boolean }> = [
   { value: "name", label: "Name", required: true },
   { value: "phone", label: "Phone", required: true },
-  { value: "email", label: "Email", required: true },
+  { value: "email", label: "Email", required: false },
   { value: "tag", label: "Tag", required: false },
   { value: "dateSaved", label: "Date Saved", required: false },
   { value: "notes", label: "Notes", required: false },
@@ -98,9 +98,9 @@ function isValidDate(value: string) {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validateRow(row: ImportContactRow) {
-  if (!row.name || !row.phone || !row.email) return "Name, phone, and email are required.";
+  if (!row.name || !row.phone) return "Name and phone are required.";
   if (!/^\d{7,15}$/.test(row.phone)) return "Phone must contain 7-15 digits.";
-  if (!EMAIL_REGEX.test(row.email)) return "Please enter a valid email address.";
+  if (row.email && !EMAIL_REGEX.test(row.email)) return "Please enter a valid email address.";
   if (row.dateSaved && !isValidDate(row.dateSaved)) return "Date Saved must use YYYY-MM-DD.";
   return null;
 }
@@ -370,7 +370,7 @@ export function ImportContactsDialog() {
           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
             <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">Expected columns</p>
-              <p className="mt-2">Name</p><p>Phone</p><p>Email</p><p>Tag</p><p>Date Saved (Optional)</p><p>Notes (Optional)</p>
+              <p className="mt-2">Name</p><p>Phone</p><p>Email (Optional)</p><p>Tag</p><p>Date Saved (Optional)</p><p>Notes (Optional)</p>
             </div>
             <div className="space-y-2">
               <input ref={fileInputRef} id="contacts-csv" type="file" accept=".csv,.xlsx,.xls" onChange={handleFileChange} className="sr-only" />
