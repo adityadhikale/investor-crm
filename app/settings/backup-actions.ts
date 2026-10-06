@@ -1,6 +1,6 @@
 "use server";
 
-import { requireActionAuth } from "@/lib/auth";
+import { requireOwnerAction } from "@/lib/auth";
 import { BACKUP_BUCKET, saveDailyBackup } from "@/lib/backup";
 import { createServiceRoleClient } from "@/lib/supabase-service";
 
@@ -12,11 +12,11 @@ export interface StoredBackup {
 }
 
 // The backups bucket is private, so reading it uses the service client, but
-// only after the signed-in owner is confirmed.
+// only after the signed-in owner is confirmed (requireOwnerAction).
 
 /** Saved daily backups, newest first. */
 export async function listStoredBackups(): Promise<{ backups?: StoredBackup[]; error?: string }> {
-  const { error: authError } = await requireActionAuth();
+  const { error: authError } = await requireOwnerAction();
   if (authError) return { error: "Unauthorized" };
 
   const { data, error } = await createServiceRoleClient()
@@ -40,7 +40,7 @@ export async function listStoredBackups(): Promise<{ backups?: StoredBackup[]; e
 
 /** A download link for one backup, valid for one minute. */
 export async function getBackupDownloadUrl(name: string): Promise<{ url?: string; error?: string }> {
-  const { error: authError } = await requireActionAuth();
+  const { error: authError } = await requireOwnerAction();
   if (authError) return { error: "Unauthorized" };
   if (!/^crest-crm-backup-\d{4}-\d{2}-\d{2}\.json\.gz$/.test(name)) {
     return { error: "Unknown backup." };
@@ -55,7 +55,7 @@ export async function getBackupDownloadUrl(name: string): Promise<{ url?: string
 
 /** Takes a backup now (same as the nightly one). */
 export async function backUpNow(): Promise<{ success?: boolean; error?: string }> {
-  const { error: authError } = await requireActionAuth();
+  const { error: authError } = await requireOwnerAction();
   if (authError) return { error: "Unauthorized" };
   try {
     await saveDailyBackup(createServiceRoleClient());

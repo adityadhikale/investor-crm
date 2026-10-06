@@ -6,7 +6,7 @@ import {
   InvestorTrackingTable,
   type InvestorTrackingRow,
 } from "@/components/investor-tracking-table";
-import { INVESTOR_TAG } from "@/lib/tags";
+import { INVESTOR_TAGS } from "@/lib/tags";
 import { PaginationControls } from "@/components/pagination-controls";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
@@ -52,7 +52,7 @@ export default async function InvestorsPage({
     let countQuery = supabase
       .from("contacts")
       .select("id", { count: "exact", head: true })
-      .contains("tags", [INVESTOR_TAG])
+      .overlaps("tags", INVESTOR_TAGS)
       .is("deleted_at", null);
     if (search) countQuery = countQuery.or(searchFilter);
 
@@ -67,7 +67,7 @@ export default async function InvestorsPage({
     let contactsQuery = supabase
       .from("contacts")
       .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
-      .contains("tags", [INVESTOR_TAG])
+      .overlaps("tags", INVESTOR_TAGS)
       .is("deleted_at", null);
     if (search) contactsQuery = contactsQuery.or(searchFilter);
 

@@ -166,7 +166,8 @@ export async function createBroadcastDraft(data: CreateBroadcastDraftInput) {
   });
 
   if (error) {
-    return { error: error.message || "Failed to create broadcast draft." };
+    console.error("Failed to create broadcast draft.", error.message);
+    return { error: "Failed to create broadcast draft." };
   }
 
   revalidatePath("/broadcasts");
@@ -233,7 +234,8 @@ export async function createScheduledBroadcast(
   });
 
   if (error) {
-    return { error: error.message || "Failed to create scheduled broadcast." };
+    console.error("Failed to create scheduled broadcast.", error.message);
+    return { error: "Failed to create scheduled broadcast." };
   }
 
   revalidatePath("/broadcasts");
@@ -353,7 +355,8 @@ export async function updateBroadcast(id: string, data: UpdateBroadcastInput) {
     .eq("id", id);
 
   if (error) {
-    return { error: error.message || "Failed to update broadcast." };
+    console.error("Failed to update broadcast.", error.message);
+    return { error: "Failed to update broadcast." };
   }
 
   revalidatePath("/broadcasts");
@@ -386,7 +389,8 @@ export async function deleteBroadcast(id: string) {
     .neq("status", "sending");
 
   if (error) {
-    return { error: error.message || "Failed to delete broadcast." };
+    console.error("Failed to delete broadcast.", error.message);
+    return { error: "Failed to delete broadcast." };
   }
 
   revalidatePath("/broadcasts");
@@ -412,7 +416,8 @@ export async function deleteBroadcasts(ids: string[]) {
     .select("id");
 
   if (error) {
-    return { error: error.message || "Failed to delete broadcasts." };
+    console.error("Failed to delete broadcasts.", error.message);
+    return { error: "Failed to delete broadcasts." };
   }
 
   const deleted = deletedRows?.length ?? 0;

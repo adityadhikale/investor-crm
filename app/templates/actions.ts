@@ -101,7 +101,8 @@ export async function createTemplate(data: CreateTemplateInput) {
     .single();
 
   if (error) {
-    return { error: error.message || "Failed to create template." };
+    console.error("Failed to create template.", error.message);
+    return { error: "Failed to create template." };
   }
 
   revalidatePath("/templates");
@@ -158,7 +159,8 @@ export async function updateTemplate(id: string, data: UpdateTemplateInput) {
     .eq("id", id);
 
   if (error) {
-    return { error: error.message || "Failed to update template." };
+    console.error("Failed to update template.", error.message);
+    return { error: "Failed to update template." };
   }
 
   revalidatePath("/templates");
@@ -182,7 +184,8 @@ export async function deleteTemplate(id: string) {
     .eq("id", id);
 
   if (error) {
-    return { error: error.message || "Failed to delete template." };
+    console.error("Failed to delete template.", error.message);
+    return { error: "Failed to delete template." };
   }
 
   revalidatePath("/templates");
@@ -224,6 +227,8 @@ export interface SyncMetaTemplatesResult {
   imported?: number;
   approved?: number;
   skipped?: string[];
+  /** Templates removed from the CRM because they no longer exist at Meta. */
+  removed?: string[];
 }
 
 /**
@@ -256,7 +261,8 @@ export async function syncMetaTemplates(): Promise<SyncMetaTemplatesResult> {
     (allRows ?? []).filter((row) => row.deleted_at && row.meta_template_id).map((row) => row.meta_template_id),
   );
   if (existingError) {
-    return { error: existingError.message || "Could not load CRM templates." };
+    console.error("Could not load CRM templates.", existingError.message);
+    return { error: "Could not load CRM templates." };
   }
 
   const skipped: string[] = [];
@@ -302,14 +308,34 @@ export async function syncMetaTemplates(): Promise<SyncMetaTemplatesResult> {
       ? await supabase.from("templates").update(row).eq("id", existing.id)
       : await supabase.from("templates").insert(row);
     if (error) {
-      return { error: `Could not save "${template.name}": ${error.message}` };
+      console.error(`Could not save template "${template.name}":`, error.message);
+      return { error: `Could not save the template "${template.name}".` };
     }
     imported++;
   }
 
+  // Templates deleted in WhatsApp Manager no longer come back from Meta, so
+  // hide the CRM copies too. The list above is Meta's complete list (every
+  // page was read), including templates the CRM can't use, so only templates
+  // that are really gone are removed. CRM-only templates are never touched.
+  const metaIds = new Set(metaTemplates.map((template) => template.id));
+  const gone = existingRows.filter((row) => row.meta_template_id && !metaIds.has(row.meta_template_id));
+  const removed: string[] = [];
+  if (gone.length > 0) {
+    const { error: removeError } = await supabase
+      .from("templates")
+      .update({ deleted_at: new Date().toISOString() })
+      .in("id", gone.map((row) => row.id));
+    if (removeError) {
+      console.error("Could not remove deleted templates:", removeError.message);
+      return { error: "Could not remove templates that were deleted at Meta." };
+    }
+    removed.push(...gone.map((row) => row.name));
+  }
+
   revalidatePath("/templates");
   revalidatePath("/broadcasts/new");
-  return { success: true, imported, approved, skipped };
+  return { success: true, imported, approved, skipped, removed };
 }
 
 export interface ChatTemplate {

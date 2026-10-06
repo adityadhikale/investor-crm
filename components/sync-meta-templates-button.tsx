@@ -27,8 +27,11 @@ export function SyncMetaTemplatesButton() {
     const skipped = result.skipped?.length
       ? ` Skipped (not supported): ${result.skipped.join(", ")}.`
       : "";
+    const removed = result.removed?.length
+      ? ` Removed (deleted at Meta): ${result.removed.join(", ")}.`
+      : "";
     toast(
-      `Synced ${result.imported} template${result.imported === 1 ? "" : "s"} from Meta, ${result.approved} approved.${skipped}`,
+      `Synced ${result.imported} template${result.imported === 1 ? "" : "s"} from Meta, ${result.approved} approved.${skipped}${removed}`,
       "success",
     );
     router.refresh();

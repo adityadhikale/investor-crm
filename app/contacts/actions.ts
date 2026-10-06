@@ -115,7 +115,8 @@ export async function addContact(formData: FormData) {
     .single();
 
   if (error) {
-    return { error: error.message };
+    console.error("[addContact] insert failed:", error.message);
+    return { error: "The contact could not be saved. Please try again." };
   }
 
   await linkUnmatchedMessages(supabase, [inserted]);
@@ -846,8 +847,8 @@ export async function deleteContacts(ids: string[]) {
   }
 
   // Soft delete, like single delete: the contacts are hidden everywhere
-  // (groups skip deleted members) but can be restored, with their notes,
-  // follow-ups, messages and group memberships intact.
+  // (groups skip deleted members), but their notes, follow-ups, messages and
+  // group memberships stay in the database. There is no restore action yet.
   const deletedAt = new Date().toISOString();
   const { error } = await supabase
     .from("contacts")
@@ -1023,7 +1024,7 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
     if (insertError) {
       revalidatePath("/contacts");
       return {
-        error: `Import stopped after ${i} of ${rowsToInsert.length} new contacts (${insertError.message}). The ${i} contacts already inserted were saved — fix the issue and re-import the rest.`,
+        error: `Import stopped after ${i} of ${rowsToInsert.length} new contacts. The ${i} contacts already inserted were saved — try again to import the rest.`,
       };
     }
   }

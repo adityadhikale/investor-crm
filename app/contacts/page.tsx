@@ -10,7 +10,7 @@ import { TagFilter } from "@/components/tag-filter";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 import { getUnreadCountsByContact } from "@/lib/unread";
 import { ilikeAnyFilter } from "@/lib/postgrest-filter";
-import { INVESTOR_TAG } from "@/lib/tags";
+import { INVESTOR_TAGS } from "@/lib/tags";
 
 export const metadata: Metadata = {
   title: "Contacts",
@@ -80,7 +80,7 @@ export default async function ContactsPage({
         .from("contacts")
         .select("id", { count: "exact", head: true })
         .is("deleted_at", null)
-        .contains("tags", [INVESTOR_TAG]),
+        .overlaps("tags", INVESTOR_TAGS),
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })

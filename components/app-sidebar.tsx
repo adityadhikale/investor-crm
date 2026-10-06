@@ -16,7 +16,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useSidebar } from "@/components/sidebar-provider";
-import { TAG_OPTIONS, INVESTOR_TAG } from "@/lib/tags";
+import { TAG_OPTIONS } from "@/lib/tags";
 import { getUnreadConversationCount } from "@/app/unread-messages/actions";
 import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
 import { startVisibleInterval } from "@/lib/visible-interval";
@@ -40,9 +40,7 @@ const navItems = [
 ];
 
 function tagHref(tag: string) {
-  return tag === INVESTOR_TAG
-    ? "/investors"
-    : `/contacts?tags=${encodeURIComponent(tag)}`;
+  return `/contacts?tags=${encodeURIComponent(tag)}`;
 }
 
 export function AppSidebar() {
@@ -138,8 +136,7 @@ export function AppSidebar() {
       {tagsOpen && (
         <div className="ml-3 flex flex-col gap-1 border-l pl-3">
           {TAG_OPTIONS.map((tag) => {
-            const isActive =
-              tag === INVESTOR_TAG && pathname === "/investors";
+            const isActive = false;
             return (
               <Link
                 key={tag}

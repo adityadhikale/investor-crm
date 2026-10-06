@@ -224,8 +224,9 @@ export function ContactsTable({
               Delete {selectedIds.size} contact{selectedIds.size === 1 ? "" : "s"}?
             </DialogTitle>
             <DialogDescription>
-              The selected contacts will be removed from the CRM. They&apos;re kept in the
-              database (with their notes, follow-ups and messages) and can be restored if needed.
+              The selected contacts will be removed from the CRM. They&apos;re hidden
+              from the CRM, but their data (notes, follow-ups and messages) stays in the database.
+              There is no restore button in the app yet.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

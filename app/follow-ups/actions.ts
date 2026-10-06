@@ -1,6 +1,6 @@
 "use server";
 
-import { requireActionAuth } from "@/lib/auth";
+import { requireOwnerAction } from "@/lib/auth";
 import { runReminderDispatch } from "@/lib/follow-up-reminders";
 
 /**
@@ -10,7 +10,7 @@ import { runReminderDispatch } from "@/lib/follow-up-reminders";
  * scheduler call (netlify/functions/send-daily-reminder.mts, 10:00 AM IST).
  */
 export async function sendTestFollowUpReminder() {
-  const { error: authError } = await requireActionAuth();
+  const { error: authError } = await requireOwnerAction();
   if (authError) return { error: "Unauthorized" };
 
   const summary = await runReminderDispatch({ ignoreEnabledSwitch: true });

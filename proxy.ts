@@ -29,7 +29,7 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isProtectedRoute =
     pathname === "/" ||
-    /^(?:\/dashboard|\/contacts|\/groups|\/investors|\/my-profile)(?:\/|$)/.test(pathname);
+    /^(?:\/dashboard|\/contacts|\/groups|\/investors|\/my-profile|\/broadcasts|\/templates|\/unread-messages)(?:\/|$)/.test(pathname);
 
   if (!user && isProtectedRoute) {
     return NextResponse.redirect(new URL("/login", request.url));
@@ -51,5 +51,8 @@ export const config = {
     "/groups/:path*",
     "/investors/:path*",
     "/my-profile/:path*",
+    "/broadcasts/:path*",
+    "/templates/:path*",
+    "/unread-messages/:path*",
   ],
 };
