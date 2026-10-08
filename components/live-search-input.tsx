@@ -52,7 +52,7 @@ export function LiveSearchInput({
       const nextUrl = queryString ? `${pathname}?${queryString}` : pathname;
 
       router.replace(nextUrl, { scroll: false });
-    }, value ? 250 : 0);
+    }, value ? 150 : 0);
 
     return () => {
       window.clearTimeout(timeout);

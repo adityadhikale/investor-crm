@@ -21,6 +21,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+/** Time in a chat list: clock time today, "Yesterday", or the date. */
+function formatChatTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (date.getTime() >= startOfToday) {
+    return date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
+  }
+  if (date.getTime() >= startOfToday - 24 * 60 * 60 * 1000) return "Yesterday";
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" });
+}
+
 export function ContactsTable({
   contacts,
   search,
@@ -153,6 +166,15 @@ export function ContactsTable({
                           {contact.name}
                           <UnreadBadge count={unreadCounts[contact.id]} />
                         </span>
+                        {contact.last_message_at && (
+                          <span className="mt-0.5 flex max-w-[16rem] items-center gap-2 text-xs font-normal text-muted-foreground">
+                            <span className="truncate">
+                              {contact.last_message_direction === "out" ? "You: " : ""}
+                              {contact.last_message_text || "Attachment"}
+                            </span>
+                            <span className="shrink-0 opacity-70">{formatChatTime(contact.last_message_at)}</span>
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-2.5 sm:py-4">{contact.phone}</td>
                       <td className="px-5 py-2.5 sm:py-4 text-muted-foreground">

@@ -1,5 +1,5 @@
 # CREST CRM — HANDOFF / CONTEXT
-## Updated: 6 October 2026
+## Updated: 8 October 2026
 
 You are continuing development of an internal single-user Investor CRM for CREST Capital Management. This document is the source of truth for context — read it fully before suggesting any changes.
 
@@ -62,7 +62,7 @@ Notable columns / rules:
 
 **Migrations — applied by Aditya through 4 Oct unless marked:**
 `20260929000000_add_notes_to_contacts`, `20260930000000_add_unread_messages`, `20260930010000_add_app_settings`, `20261002000000_lock_down_to_owner`, `20261003000000_add_performance_indexes`, `20261003010000_add_phone_to_whatsapp_messages` (phone + profile_name), `20261003020000_add_send_summary_to_broadcasts`, `20261003030000_add_broadcast_recipients` (table, `sending` status, claim function), `20261004000000_add_message_delivery_status` (`whatsapp_messages.wamid`, `status`, `status_error`, `status_at`).
-Added 6 Oct: `20260101000000_baseline_schema` (reference only, safe no-op), `20261006000000_unique_whatsapp_wamid` (**confirm it was run**), `20261006010000_add_wamid_to_broadcast_recipients` (**applied**), `20261006020000_make_whatsapp_media_private` (**PENDING — run only AFTER the matching deploy**, otherwise chat images stop loading; undo = set `public = true`).
+Added 8 Oct: `20261008000000_chat_list_and_realtime` (**PENDING — run in the SQL Editor; code works without it**). Added 6 Oct: `20260101000000_baseline_schema` (reference only, safe no-op), `20261006000000_unique_whatsapp_wamid` (**confirm it was run**), `20261006010000_add_wamid_to_broadcast_recipients` (**applied**), `20261006020000_make_whatsapp_media_private` (**PENDING — run only AFTER the matching deploy**, otherwise chat images stop loading; undo = set `public = true`).
 
 **Row-level security:** every table (including `broadcast_recipients`) has one policy "Owner only" → `public.is_crm_owner()` (user id `ff04929a-ae33-454b-8f18-0c81a4059022`, login `test@example.com`). **Supabase public sign-up is disabled** — keep it off. The service-role key (`lib/supabase-service.ts`) bypasses RLS and is used by the webhook, scheduled jobs and backup/storage code. Never use the anon key server-side without a session.
 
@@ -109,6 +109,13 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 26. **Add Tag bug fixed** (one state was used for both "dialog open" and "saving").
 27. **Merged components**: `components/investor-detail.tsx` is now a thin wrapper around `ContactDetail variant="investor"`; dead code removed (`getWhatsAppMessages`, unused webhook exports).
 28. **Documents** (not committed): `CRM_FRONTEND_DOCUMENTATION`, `CRM_BACKEND_DOCUMENTATION`, `CRM_DATABASE_DOCUMENTATION` (.md + .docx) and `CREST-CRM-PRD.docx`; generated 6 Oct, before items 21–27 were finished.
+
+## Added 8 Oct 2026
+29. **Login page never scrolls**: compact layout on short screens via a `short` Tailwind variant (`@custom-variant short (@media (max-height: 700px))` in `app/globals.css`); checked at 1093x530, 1280x720 and 375x667.
+30. **Instant search** (`components/contacts-explorer.tsx`, `lib/contact-search.ts`, `app/api/contacts/index/route.ts`): the Contacts page loads every active contact once (`/api/contacts/index`, kept in memory for the session and refreshed on new messages, focus, and after edits) and then searches, tag-filters and pages entirely in the browser on every keystroke (ranked: word-start in name, phone digits incl. +91/0 prefixes, email). Until the list has loaded, the server's page is shown. 5,000 contacts search in 1–16 ms. The URL is kept in sync with `history.replaceState`. Other lists (Investors, Unread, etc.) still search on the server but are faster (below).
+31. **Faster server pages**: `requireAuthFast()` (`lib/auth.ts`, uses `auth.getClaims()`, verified locally instead of a network call) on all list/detail pages that only need the DB client; `proxy.ts` also uses `getClaims()`. Pages that show account details (dashboard, my-profile) still use `requireAuth()`. Search debounce 250 → 150 ms.
+32. **Chat-style contact order**: contacts show the most recently active chats first with a preview line ("You: …" / message text, and time) — needs migration `20261008000000_chat_list_and_realtime.sql` (adds `contacts.last_message_at/_text/_direction`, an after-insert trigger on `whatsapp_messages`, a backfill). Until it is run, lists fall back to the old order and show no preview. The Investors page uses the same order.
+33. **Faster arrival of new messages**: `components/realtime-bridge.tsx` (mounted in `app/layout.tsx`) subscribes to Supabase Realtime on `whatsapp_messages` and fires `MESSAGES_CHANGED_EVENT` / `UNREAD_CHANGED_EVENT`; the open chat refreshes at once, the sidebar badge, bell and contact list reload. Fallback polling is now 10 s (open chat) and 20 s (badge, bell). Realtime needs the same migration (it adds the table to the `supabase_realtime` publication). Messages typed in the WhatsApp **Business app on the phone** only reach the CRM if Coexistence is set up (not done); messages from customers' phones arrive through the webhook and are shown within a second or two once realtime is on.
 
 ---
 

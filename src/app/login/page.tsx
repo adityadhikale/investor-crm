@@ -37,9 +37,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
+    <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-2">
       {/* Left side: Premium branding */}
-      <div className="flex flex-col justify-center border-b border-border bg-background px-6 py-5 sm:p-12 lg:border-b-0 lg:border-r lg:p-16 xl:p-24">
+      <div className="flex flex-col justify-center border-b border-border bg-background px-6 py-4 sm:p-12 short:py-3 lg:border-b-0 lg:border-r lg:p-16 xl:p-24">
         <div className="mx-auto w-full max-w-md sm:space-y-8">
           <div>
             <span
@@ -68,21 +68,21 @@ export default function LoginPage() {
       </div>
 
       {/* Right side: Login form */}
-      <div className="flex items-center justify-center bg-muted/40 px-4 py-8 sm:py-12">
+      <div className="flex min-h-0 items-center justify-center bg-muted/40 px-4 py-6 short:py-2 sm:py-8">
         <Card className="w-full max-w-md border-border/80 shadow-xs">
-          <CardHeader className="space-y-1.5 pb-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <CardHeader className="space-y-1.5 pb-3 short:pb-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground short:hidden">
               Welcome back
             </p>
             <CardTitle className="text-2xl font-semibold tracking-tight text-foreground">
               Log in to your account
             </CardTitle>
-            <CardDescription className="text-sm text-muted-foreground">
+            <CardDescription className="text-sm text-muted-foreground short:hidden">
               Access the CREST Investor CRM.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-3 short:space-y-2">
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm font-medium text-foreground">
                   Email
@@ -146,7 +146,7 @@ export default function LoginPage() {
                 )}
               </Button>
 
-              <div className="relative my-5 flex items-center justify-center">
+              <div className="relative my-4 flex items-center justify-center short:hidden">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-border" />
                 </div>
@@ -157,14 +157,14 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+              <div className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground short:hidden">
                 <Shield className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
                 <p className="leading-relaxed">
                   Your data is protected with industry-standard security and encrypted connections.
                 </p>
               </div>
 
-              <p className="mt-4 text-center text-xs text-muted-foreground">
+              <p className="mt-3 text-center text-xs text-muted-foreground short:mt-1">
                 <Link href="/privacy-policy" className="underline underline-offset-2 transition-colors hover:text-foreground">
                   Privacy Policy
                 </Link>

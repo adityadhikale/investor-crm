@@ -62,7 +62,7 @@ export function AppSidebar() {
     }
 
     refreshUnreadCount();
-    const stopPolling = startVisibleInterval(refreshUnreadCount, 60_000);
+    const stopPolling = startVisibleInterval(refreshUnreadCount, 20_000);
     window.addEventListener(UNREAD_CHANGED_EVENT, refreshUnreadCount);
 
     return () => {

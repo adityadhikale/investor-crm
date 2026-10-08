@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { BroadcastEditor } from "@/components/broadcast-editor";
 import type {
   GroupOption,
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 };
 
 export default async function NewBroadcastPage() {
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const [groupsResult, contactsResult, templatesResult] = await Promise.all([
     supabase

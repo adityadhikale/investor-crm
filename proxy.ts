@@ -23,9 +23,10 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims verifies the session token locally (refreshing it when it has
+  // expired) instead of calling the auth service on every request.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims ?? null;
   const pathname = request.nextUrl.pathname;
   const isProtectedRoute =
     pathname === "/" ||

@@ -18,7 +18,7 @@ import { UNREAD_CHANGED_EVENT } from "@/lib/unread-events";
 import { startVisibleInterval } from "@/lib/visible-interval";
 import { cn } from "@/lib/utils";
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 20_000;
 
 const KIND_ICONS = {
   message: MessageCircle,

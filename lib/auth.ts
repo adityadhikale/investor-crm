@@ -20,6 +20,24 @@ export async function requireAuth() {
 }
 
 /**
+ * Faster version of requireAuth for pages that only need the database client.
+ * It checks the signed-in session on the server itself (the token's signature
+ * and expiry) instead of asking the Supabase auth service over the network on
+ * every page load, which saves a round trip per request. Pages that show
+ * account details use requireAuth instead.
+ */
+export async function requireAuthFast() {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+
+  if (error || !data?.claims) {
+    redirect("/login");
+  }
+
+  return { supabase };
+}
+
+/**
  * Like requireActionAuth, but also confirms the signed-in user is the CRM
  * owner (the same check the database's row-level security uses). For actions
  * that run with the service-role key and so bypass those database rules.

@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Applies on short screens (small laptops, scaled displays): used to keep the login page from scrolling. */
+@custom-variant short (@media (max-height: 700px));
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

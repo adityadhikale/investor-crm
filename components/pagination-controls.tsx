@@ -11,11 +11,14 @@ export function PaginationControls({
   totalCount,
   pageSize = PAGE_SIZE,
   itemLabel = "contacts",
+  onPageChange,
 }: {
   page: number;
   totalCount: number;
   pageSize?: number;
   itemLabel?: string;
+  /** When given, paging happens in the page itself instead of through the URL. */
+  onPageChange?: (page: number) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -26,6 +29,10 @@ export function PaginationControls({
   const lastItem = Math.min(page * pageSize, totalCount);
 
   function goToPage(nextPage: number) {
+    if (onPageChange) {
+      onPageChange(Math.max(1, nextPage));
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     if (nextPage <= 1) {
       params.delete("page");

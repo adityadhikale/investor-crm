@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { startVisibleInterval } from "@/lib/visible-interval";
+import { MESSAGES_CHANGED_EVENT } from "@/lib/unread-events";
 import { metaMediaIdFrom } from "@/lib/media-ref";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,6 +63,8 @@ export type WhatsAppHistoryProps = {
   onOpened?: () => void;
   /** Unread inbound messages; shown as a badge until the full history is opened. */
   unreadCount?: number;
+  /** Sends a failed message again (only offered while the 24-hour reply window is open). */
+  onResendMessage?: (messageId: string) => Promise<{ error?: string } | void>;
   /** Sends a Meta-approved template (works outside the 24-hour window). */
   onSendTemplate?: (templateId: string, params: string[]) => Promise<{ error?: string } | void>;
   /** Used to pre-fill {{1}} with the contact's first name. */
@@ -256,6 +259,7 @@ export function WhatsAppHistory({
   onSendReply,
   isSendingReply = false,
   onSendMedia,
+  onResendMessage,
   isSendingMedia = false,
   onOpened,
   unreadCount = 0,
@@ -264,6 +268,7 @@ export function WhatsAppHistory({
 }: WhatsAppHistoryProps) {
   const [open, setOpen] = useState(false);
   const [templateFormOpen, setTemplateFormOpen] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [unread, setUnread] = useState(unreadCount);
   const [replyText, setReplyText] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
@@ -277,14 +282,21 @@ export function WhatsAppHistory({
   // Free-form messages only reach the contact within 24 h of their last message.
   const windowOpen = now > 0 && now - lastInboundTime(messages) < REPLY_WINDOW_MS;
 
-  // While the chat is open, re-check every 30 s so new messages and the window
+  // While the chat is open, refresh as soon as the database reports a new
+  // message (live), and every 10 s as a fallback so new messages and the window
   // countdown stay current (paused while the browser tab is hidden).
   useEffect(() => {
     if (!open) return;
-    return startVisibleInterval(() => {
+    const refreshNow = () => {
       setNow(Date.now());
       router.refresh();
-    }, 30_000);
+    };
+    window.addEventListener(MESSAGES_CHANGED_EVENT, refreshNow);
+    const stopPolling = startVisibleInterval(refreshNow, 10_000);
+    return () => {
+      window.removeEventListener(MESSAGES_CHANGED_EVENT, refreshNow);
+      stopPolling();
+    };
   }, [open, router]);
 
   // Keep the newest message in view, like a chat app.
@@ -580,13 +592,29 @@ export function WhatsAppHistory({
                           </p>
                         )}
                         {!isInbound && message.status === "failed" && (
-                          <p className="mt-1 flex items-start gap-1 rounded bg-red-500/15 px-1.5 py-1 text-[11px] leading-snug text-red-700 dark:text-red-300">
-                            <AlertCircle className="mt-px size-3 shrink-0" />
-                            <span>
-                              Not delivered.{" "}
-                              {message.status_error ?? "WhatsApp could not deliver this message."}
-                            </span>
-                          </p>
+                          <div className="mt-1 rounded bg-red-500/15 px-1.5 py-1 text-[11px] leading-snug text-red-700 dark:text-red-300">
+                            <p className="flex items-start gap-1">
+                              <AlertCircle className="mt-px size-3 shrink-0" />
+                              <span>
+                                Not delivered.{" "}
+                                {message.status_error ?? "WhatsApp could not deliver this message."}
+                              </span>
+                            </p>
+                            {onResendMessage && windowOpen && !/^Resent\b/.test(message.status_error ?? "") && (
+                              <button
+                                type="button"
+                                disabled={resendingId !== null}
+                                onClick={async () => {
+                                  setResendingId(message.id);
+                                  await onResendMessage(message.id);
+                                  setResendingId(null);
+                                }}
+                                className="mt-1 font-medium underline underline-offset-2 disabled:opacity-60"
+                              >
+                                {resendingId === message.id ? "Resending…" : "Resend"}
+                              </button>
+                            )}
+                          </div>
                         )}
                         <p className="mt-0.5 flex items-center justify-end gap-1 text-right text-[10px] leading-none">
                           <span className="opacity-60">{formatBubbleTime(at)}</span>

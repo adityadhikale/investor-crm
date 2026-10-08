@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { PaginationControls } from "@/components/pagination-controls";
 import {
   UnreadMessagesList,
@@ -27,7 +27,7 @@ export default async function UnreadMessagesPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const requestedPage = parsePage((await searchParams).page);
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const { count, error: countError } = await supabase.rpc(
     "unread_conversations",

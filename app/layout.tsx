@@ -6,6 +6,7 @@ import { TopNav } from "@/components/top-nav";
 import { ToastProvider } from "@/components/toast-provider";
 import { SidebarProvider } from "@/components/sidebar-provider";
 import { MainContent } from "@/components/main-content";
+import { RealtimeBridge } from "@/components/realtime-bridge";
 import { ThemeProvider } from "@/components/theme-provider";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <ThemeProvider>
           <ToastProvider>
             <SidebarProvider>
+              <RealtimeBridge />
               <TopNav />
               <div className="flex flex-1 overflow-hidden">
                 <AppSidebar />

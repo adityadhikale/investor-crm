@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import type { BroadcastData } from "@/app/broadcasts/actions";
 import { BroadcastsTable } from "@/components/broadcasts-table";
 import { PaginationControls } from "@/components/pagination-controls";
@@ -17,7 +17,7 @@ export default async function BroadcastsPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const requestedPage = parsePage((await searchParams).page);
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const { count, error: countError } = await supabase
     .from("broadcasts")

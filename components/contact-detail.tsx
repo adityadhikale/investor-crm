@@ -21,6 +21,7 @@ import {
   getMeetingNotes,
   prepareWhatsAppMediaUpload,
   sendWhatsAppMediaFromStorage,
+  resendFailedWhatsAppMessage,
   sendWhatsAppReply,
   sendWhatsAppTemplateToContact,
   transcribeVoiceNote,
@@ -222,6 +223,16 @@ export function ContactDetail({
     } finally {
       setIsSendingReply(false);
     }
+  }
+
+  async function handleResendMessage(messageId: string) {
+    const result = await resendFailedWhatsAppMessage(messageId);
+    if ("error" in result && result.error) {
+      toast(result.error, "error");
+      return { error: result.error };
+    }
+    toast("Message sent again.");
+    router.refresh();
   }
 
   async function handleSendTemplate(templateId: string, params: string[]) {
@@ -840,6 +851,7 @@ export function ContactDetail({
           onOpened={() => void markReadAndNotify(contact.id)}
           unreadCount={initialUnreadCount}
           onSendTemplate={handleSendTemplate}
+          onResendMessage={handleResendMessage}
           contactName={contact.name}
           className="mb-8"
         />

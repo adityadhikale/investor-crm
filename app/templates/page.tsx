@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import type { TemplateData } from "@/app/templates/actions";
 import { PaginationControls } from "@/components/pagination-controls";
 import { TemplatesTable } from "@/components/templates-table";
@@ -18,7 +18,7 @@ export default async function TemplatesPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const requestedPage = parsePage((await searchParams).page);
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const { count, error: countError } = await supabase
     .from("templates")

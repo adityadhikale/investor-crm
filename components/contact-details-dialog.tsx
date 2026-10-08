@@ -58,6 +58,10 @@ export type ContactRow = {
   tags: string[] | null;
   date_saved: string | null;
   notes?: string | null;
+  /** Latest WhatsApp message with this contact (set by the chat-list migration). */
+  last_message_at?: string | null;
+  last_message_text?: string | null;
+  last_message_direction?: string | null;
   contact_groups:
     | Array<{
         groups:

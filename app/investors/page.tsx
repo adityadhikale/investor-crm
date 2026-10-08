@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { LiveSearchInput } from "@/components/live-search-input";
 import type { ContactRow } from "@/components/contact-details-dialog";
 import {
@@ -36,7 +36,7 @@ export default async function InvestorsPage({
   const search = resolvedSearchParams.search?.trim() ?? "";
   const requestedPage = parsePage(resolvedSearchParams.page);
 
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   let contacts: ContactRow[] = [];
   let interactions: InteractionRow[] = [];
@@ -64,20 +64,32 @@ export default async function InvestorsPage({
     page = Math.min(requestedPage, getTotalPages(totalCount));
     const { from, to } = getPageRange(page);
 
-    let contactsQuery = supabase
-      .from("contacts")
-      .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
-      .overlaps("tags", INVESTOR_TAGS)
-      .is("deleted_at", null);
-    if (search) contactsQuery = contactsQuery.or(searchFilter);
+    const buildContactsQuery = () => {
+      let query = supabase
+        .from("contacts")
+        .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
+        .overlaps("tags", INVESTOR_TAGS)
+        .is("deleted_at", null);
+      if (search) query = query.or(searchFilter);
+      return query;
+    };
 
-    // "id" is a tie-breaker so rows sharing a name don't shuffle between pages.
-    const { data, error } = await contactsQuery
+    // Most recent chat first, like WhatsApp; then A to Z. "id" is a tie-breaker so
+    // rows don't shuffle between pages. Until the chat-list migration is run the
+    // last-message column doesn't exist, so fall back to A to Z.
+    let result = await buildContactsQuery()
+      .order("last_message_at", { ascending: false, nullsFirst: false })
       .order("name", { ascending: true })
       .order("id", { ascending: true })
       .range(from, to);
-    if (error) throw new Error(error.message);
-    contacts = (data ?? []) as unknown as ContactRow[];
+    if (result.error && /last_message/i.test(result.error.message)) {
+      result = await buildContactsQuery()
+        .order("name", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+    }
+    if (result.error) throw new Error(result.error.message);
+    contacts = (result.data ?? []) as unknown as ContactRow[];
 
     const contactIds = contacts.map((contact) => contact.id);
 

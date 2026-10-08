@@ -1,12 +1,9 @@
 import type { Metadata } from "next";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { AddContactDialog } from "@/components/add-contact-dialog";
 import type { ContactRow } from "@/components/contact-details-dialog";
-import { ContactsTable } from "@/components/contacts-table";
 import { ImportContactsDialog } from "@/components/import-contacts-dialog";
-import { LiveSearchInput } from "@/components/live-search-input";
-import { PaginationControls } from "@/components/pagination-controls";
-import { TagFilter } from "@/components/tag-filter";
+import { ContactsExplorer } from "@/components/contacts-explorer";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 import { getUnreadCountsByContact } from "@/lib/unread";
 import { ilikeAnyFilter } from "@/lib/postgrest-filter";
@@ -29,7 +26,7 @@ export default async function ContactsPage({
     : [];
   const requestedPage = parsePage(resolvedSearchParams.page);
 
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const searchFilter = ilikeAnyFilter(["name", "phone", "email"], search);
 
@@ -45,11 +42,13 @@ export default async function ContactsPage({
     return query;
   }
 
-  function buildContactsQuery() {
+  function buildContactsQuery(withLastMessage: boolean) {
     let query = supabase
       .from("contacts")
       .select(
-        "id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))"
+        withLastMessage
+          ? "id, name, phone, email, tags, date_saved, notes, last_message_at, last_message_text, last_message_direction, contact_groups(groups(id, name))"
+          : "id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))"
       )
       .is("deleted_at", null);
 
@@ -106,14 +105,23 @@ export default async function ContactsPage({
     page = Math.min(requestedPage, getTotalPages(filteredCount));
     const { from, to } = getPageRange(page);
 
-    // "id" is a tie-breaker so rows sharing a date_saved don't shuffle between pages.
-    const { data, error } = await buildContactsQuery()
+    // Most recent chat first, like WhatsApp; "id" is a tie-breaker so rows
+    // never shuffle between pages. Until the chat-list migration is run the
+    // last-message columns don't exist, so fall back to the old order.
+    let result = await buildContactsQuery(true)
+      .order("last_message_at", { ascending: false, nullsFirst: false })
       .order("date_saved", { ascending: false })
       .order("id", { ascending: true })
       .range(from, to);
+    if (result.error && /last_message/i.test(result.error.message)) {
+      result = await buildContactsQuery(false)
+        .order("date_saved", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
+    }
 
-    if (error) throw new Error(error.message);
-    contacts = (data ?? []) as unknown as ContactRow[];
+    if (result.error) throw new Error(result.error.message);
+    contacts = (result.data ?? []) as unknown as ContactRow[];
   } catch (err) {
     loadError = err instanceof Error ? err.message : "Contacts could not be loaded.";
   }
@@ -168,26 +176,15 @@ export default async function ContactsPage({
         ))}
       </div>
 
-      {/* Search & Tag Filter */}
-      <div className="mt-3 flex flex-wrap items-center gap-2.5 sm:gap-3">
-        <LiveSearchInput
-          paramName="search"
-          placeholder="Search by name, phone, or email..."
-          className="mt-0 w-full sm:w-80 max-w-md"
-        />
-        <TagFilter />
-      </div>
-
-      {/* Table */}
-      <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        <ContactsTable
-          key={`${search}-${tagsParam}-${page}`}
-          contacts={contacts}
-          unreadCounts={unreadCounts}
-          search={search}
-        />
-        <PaginationControls page={page} totalCount={filteredCount} />
-      </div>
+      {/* Search, tag filter, table and paging (instant once all contacts are loaded) */}
+      <ContactsExplorer
+        serverContacts={contacts}
+        serverFilteredCount={filteredCount}
+        unreadCounts={unreadCounts}
+        initialSearch={search}
+        initialTags={selectedTags}
+        initialPage={page}
+      />
     </div>
   );
 }

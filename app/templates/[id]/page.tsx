@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { TemplateEditor } from "@/components/template-editor";
 import type { TemplateData } from "@/app/templates/actions";
 
@@ -16,7 +16,7 @@ interface PageProps {
 
 export default async function TemplateDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   const { data: template, error } = await supabase
     .from("templates")

@@ -11,7 +11,12 @@ import {
   sendWhatsAppTemplateMessage,
   uploadWhatsAppMedia,
 } from "@/lib/whatsapp";
-import { createMediaUploadTarget, downloadStoredMedia, mediaUrlForPath } from "@/lib/supabase-storage";
+import {
+  createMediaUploadTarget,
+  downloadStoredMedia,
+  mediaStoragePathFromUrl,
+  mediaUrlForPath,
+} from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
@@ -563,6 +568,101 @@ const MAX_WHATSAPP_MEDIA_BYTES = 16 * 1024 * 1024; // 16MB, matches Meta's video
 export type SendWhatsAppMediaReplyResult =
   | { success: true }
   | { error: string };
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+  mp4: "video/mp4", "3gp": "video/3gpp", mov: "video/quicktime", webm: "video/webm",
+  mp3: "audio/mpeg", ogg: "audio/ogg", opus: "audio/ogg", m4a: "audio/mp4", aac: "audio/aac", amr: "audio/amr", wav: "audio/wav",
+  pdf: "application/pdf", doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "text/csv", txt: "text/plain",
+};
+
+/**
+ * Sends again a message that WhatsApp reported as not delivered. It goes out as
+ * a new message (the failed one stays in the history, marked as resent so it
+ * can't be resent twice). Works only while the 24-hour reply window is open;
+ * otherwise an approved template is needed.
+ */
+export async function resendFailedWhatsAppMessage(messageId: string): Promise<SendWhatsAppReplyResult> {
+  const { supabase, error: authError } = await requireActionAuth();
+  if (authError || !supabase) return { error: "Unauthorized" };
+
+  const { data: original, error: loadError } = await supabase
+    .from("whatsapp_messages")
+    .select("id, contact_id, direction, message_text, media_url, status, status_error, deleted_at")
+    .eq("id", messageId)
+    .maybeSingle();
+  if (loadError || !original || original.deleted_at) return { error: "That message could not be found." };
+  if (original.direction !== "out" || original.status !== "failed" || !original.contact_id) {
+    return { error: "Only a message that was not delivered can be resent." };
+  }
+  if (/^Resent\b/.test(original.status_error ?? "")) {
+    return { error: "This message has already been resent." };
+  }
+
+  const contactId = original.contact_id as string;
+  const { data: contact, error: contactError } = await supabase
+    .from("contacts")
+    .select("id, phone")
+    .eq("id", contactId)
+    .maybeSingle();
+  if (contactError || !contact) return { error: "The contact could not be found." };
+
+  if (!(await isReplyWindowOpen(supabase, contactId))) {
+    return { error: REPLY_WINDOW_CLOSED_ERROR };
+  }
+
+  let wamid: string | undefined;
+  try {
+    if (original.media_url) {
+      const path = mediaStoragePathFromUrl(original.media_url);
+      if (!path) return { error: "This attachment can't be resent. Please attach the file again." };
+      const filename = (path.split("/").pop() ?? "file").replace(/^\d+-/, "");
+      const extension = filename.split(".").pop()?.toLowerCase() ?? "";
+      const mimeType = MIME_BY_EXTENSION[extension];
+      const mediaType = mimeType ? mimeTypeToWhatsAppMediaType(mimeType) : null;
+      if (!mimeType || !mediaType) return { error: "This attachment can't be resent. Please attach the file again." };
+      const bytes = await downloadStoredMedia(path);
+      const mediaId = await uploadWhatsAppMedia(bytes, mimeType, filename);
+      const response = await sendWhatsAppMediaMessage({
+        to: contact.phone,
+        mediaId,
+        mediaType,
+        filename,
+        caption: original.message_text?.trim() || undefined,
+      });
+      wamid = response.messages?.[0]?.id;
+    } else {
+      const text = (original.message_text ?? "").trim();
+      if (!text) return { error: "There is nothing to resend." };
+      const response = await sendWhatsAppMessage({ to: contact.phone, message: text });
+      if (response.error) return { error: response.error.message || "WhatsApp could not send this message." };
+      wamid = response.messages?.[0]?.id;
+    }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "WhatsApp could not send this message." };
+  }
+
+  const { error: insertError } = await insertOutboundMessage(
+    supabase,
+    { contact_id: contactId, message_text: original.message_text, media_url: original.media_url },
+    wamid,
+  );
+  // Mark the failed one so it can't be resent again (it stays in the history).
+  await supabase
+    .from("whatsapp_messages")
+    .update({ status_error: `Resent. Original problem: ${original.status_error ?? "not delivered"}` })
+    .eq("id", original.id)
+    .eq("status", "failed");
+  if (insertError) return { error: "Message sent, but could not be saved to WhatsApp history." };
+
+  revalidatePath(`/contacts/${contactId}`);
+  revalidatePath(`/investors/${contactId}`);
+  return { success: true };
+}
 
 /**
  * Step 1 of sending a file: checks it and returns a one-time upload address so

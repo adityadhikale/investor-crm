@@ -15,22 +15,33 @@ import { cn } from "@/lib/utils";
 export interface TagFilterProps {
   tagOptions?: string[];
   className?: string;
+  /** When both are given, the filter is controlled by the page instead of the URL. */
+  selectedTags?: string[];
+  onTagsChange?: (tags: string[]) => void;
 }
 
 export function TagFilter({
   tagOptions = TAG_OPTIONS,
   className,
+  selectedTags: controlledTags,
+  onTagsChange,
 }: TagFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const tagsParam = searchParams.get("tags") ?? "";
-  const selectedTags = tagsParam
+  const selectedTags = controlledTags
+    ? controlledTags
+    : tagsParam
     ? tagsParam.split(",").map((t) => t.trim()).filter(Boolean)
     : [];
 
   function updateUrl(newTags: string[]) {
+    if (onTagsChange) {
+      onTagsChange(newTags);
+      return;
+    }
     const params = new URLSearchParams(searchParams.toString());
     if (newTags.length > 0) {
       params.set("tags", newTags.join(","));

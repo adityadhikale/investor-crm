@@ -5,7 +5,7 @@ import { GroupsTable } from "@/components/groups-table";
 import { LiveSearchInput } from "@/components/live-search-input";
 import { PaginationControls } from "@/components/pagination-controls";
 import { normalizeGroupMembers, type GroupContactRelation } from "@/lib/group-members";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export default async function GroupsPage({ searchParams }: { searchParams: Promi
   const resolvedSearchParams = await searchParams;
   const search = resolvedSearchParams.search?.trim() ?? "";
   const requestedPage = parsePage(resolvedSearchParams.page);
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
 
   let countQuery = supabase.from("groups").select("id", { count: "exact", head: true });
   if (search) countQuery = countQuery.ilike("name", `%${search}%`);

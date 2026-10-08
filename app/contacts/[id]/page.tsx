@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { requireAuth } from "@/lib/auth";
+import { requireAuthFast } from "@/lib/auth";
 import { getUnreadCountsByContact } from "@/lib/unread";
 import { ContactDetail } from "@/components/contact-detail";
 import type { MeetingNote } from "@/app/contacts/actions";
@@ -17,7 +17,7 @@ export default async function ContactDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { supabase } = await requireAuth();
+  const { supabase } = await requireAuthFast();
   const { data: contact, error: contactError } = await supabase
     .from("contacts")
     .select(
