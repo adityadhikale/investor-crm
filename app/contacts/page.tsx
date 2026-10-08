@@ -178,6 +178,9 @@ export default async function ContactsPage({
 
       {/* Search, tag filter, table and paging (instant once all contacts are loaded) */}
       <ContactsExplorer
+        // A new address from outside the list (a sidebar tag link, back/forward)
+        // restarts it with that search, tags and page.
+        key={`${search}|${tagsParam}|${page}`}
         serverContacts={contacts}
         serverFilteredCount={filteredCount}
         unreadCounts={unreadCounts}
