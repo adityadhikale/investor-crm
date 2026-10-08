@@ -11,8 +11,8 @@ import type { ContactRow } from "@/components/contact-details-dialog";
  * can update on every keystroke without asking the server.
  */
 
-export interface SearchableContact {
-  contact: ContactRow;
+export interface SearchableContact<T extends ContactRow = ContactRow> {
+  contact: T;
   name: string;
   words: string[];
   digits: string;
@@ -36,7 +36,7 @@ function toTime(value: string | null | undefined): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function buildSearchIndex(contacts: ContactRow[]): SearchableContact[] {
+export function buildSearchIndex<T extends ContactRow>(contacts: T[]): SearchableContact<T>[] {
   return contacts.map((contact) => {
     const name = normalize(contact.name ?? "");
     return {
@@ -52,7 +52,7 @@ export function buildSearchIndex(contacts: ContactRow[]): SearchableContact[] {
 }
 
 /** Score of one typed word against a contact; 0 means no match. */
-function scoreToken(entry: SearchableContact, token: string): number {
+function scoreToken(entry: SearchableContact<ContactRow>, token: string): number {
   const numeric = token.replace(/\D/g, "");
   const looksLikeNumber = numeric.length >= 2 && numeric.length >= token.length - 1;
 
@@ -83,11 +83,13 @@ function scoreToken(entry: SearchableContact, token: string): number {
   return best;
 }
 
-export function searchContacts(
-  index: SearchableContact[],
+export function searchContacts<T extends ContactRow>(
+  index: SearchableContact<T>[],
   query: string,
   tags: string[] = [],
-): ContactRow[] {
+  /** Order among equal matches after the most recent chat: newest saved first, or A to Z. */
+  tieBreak: "saved" | "name" = "saved",
+): T[] {
   const normalizedQuery = normalize(query).trim();
   // A phone number typed with spaces, dashes or +91 is one search term, not several.
   const phoneLike = /^[\d\s+()-]+$/.test(normalizedQuery) && normalizedQuery.replace(/\D/g, "").length >= 3;
@@ -98,7 +100,7 @@ export function searchContacts(
         .map((token) => token.replace(/[.,;:]+$/, ""))
         .filter(Boolean);
 
-  const scored: Array<{ entry: SearchableContact; score: number }> = [];
+  const scored: Array<{ entry: SearchableContact<T>; score: number }> = [];
   for (const entry of index) {
     if (tags.length > 0 && !entry.contact.tags?.some((tag) => tags.includes(tag))) continue;
 
@@ -121,7 +123,7 @@ export function searchContacts(
     if (b.score !== a.score) return b.score - a.score;
     // Most recent chat first, like WhatsApp; then newest saved; then A to Z.
     if (b.entry.lastAt !== a.entry.lastAt) return b.entry.lastAt - a.entry.lastAt;
-    if (b.entry.savedAt !== a.entry.savedAt) return b.entry.savedAt - a.entry.savedAt;
+    if (tieBreak === "saved" && b.entry.savedAt !== a.entry.savedAt) return b.entry.savedAt - a.entry.savedAt;
     return a.entry.name.localeCompare(b.entry.name);
   });
   return scored.map((item) => item.entry.contact);

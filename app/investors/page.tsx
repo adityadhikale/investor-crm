@@ -1,13 +1,9 @@
 import type { Metadata } from "next";
 import { requireAuthFast } from "@/lib/auth";
-import { LiveSearchInput } from "@/components/live-search-input";
+import { InvestorsExplorer } from "@/components/investors-explorer";
 import type { ContactRow } from "@/components/contact-details-dialog";
-import {
-  InvestorTrackingTable,
-  type InvestorTrackingRow,
-} from "@/components/investor-tracking-table";
+import type { InvestorTrackingRow } from "@/components/investor-tracking-table";
 import { INVESTOR_TAGS } from "@/lib/tags";
-import { PaginationControls } from "@/components/pagination-controls";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 import { ilikeAnyFilter } from "@/lib/postgrest-filter";
@@ -161,15 +157,16 @@ export default async function InvestorsPage({
         </p>
       </div>
 
-      <LiveSearchInput
-        paramName="search"
-        placeholder="Search by name, phone, or email..."
+      {/* Search, table and paging (instant once all investors are loaded) */}
+      <InvestorsExplorer
+        // A new address from outside the list (back/forward) restarts it with that search and page.
+        key={`${search}|${page}`}
+        serverRows={rows}
+        serverTotal={totalCount}
+        unreadCounts={unreadCounts}
+        initialSearch={search}
+        initialPage={page}
       />
-
-      <div className="mt-3 flex min-h-0 flex-1 flex-col">
-        <InvestorTrackingTable investors={rows} unreadCounts={unreadCounts} />
-        <PaginationControls page={page} totalCount={totalCount} itemLabel="investors" />
-      </div>
     </div>
   );
 }

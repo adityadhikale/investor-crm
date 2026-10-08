@@ -11,60 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { buildSearchIndex, searchContacts } from "@/lib/contact-search";
 import { getPageRange, getTotalPages, PAGE_SIZE } from "@/lib/pagination";
-import { MESSAGES_CHANGED_EVENT } from "@/lib/unread-events";
+import { useAllRows } from "@/lib/use-all-rows";
 
 // Kept for the whole browser session, so coming back to Contacts is instant.
-let cachedContacts: ContactRow[] | null = null;
-
-async function fetchAllContacts(): Promise<ContactRow[] | null> {
-  try {
-    const response = await fetch("/api/contacts/index", { cache: "no-store" });
-    if (!response.ok) return null;
-    const data = (await response.json()) as { contacts?: ContactRow[] };
-    return Array.isArray(data.contacts) ? data.contacts : null;
-  } catch {
-    return null; // offline or signed out: the server-rendered page keeps working
-  }
-}
-
-/** Loads every contact once, then keeps the copy fresh in the background. */
-function useAllContacts(refreshKey: unknown): ContactRow[] | null {
-  const [contacts, setContacts] = useState<ContactRow[] | null>(cachedContacts);
-
-  // On first show, and whenever the server sends fresh page data (after an edit or delete).
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAllContacts().then((list) => {
-      if (cancelled || !list) return;
-      cachedContacts = list;
-      setContacts(list);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshKey]);
-
-  // A new message changes the chat order, so reload when one arrives or the tab regains focus.
-  useEffect(() => {
-    let cancelled = false;
-    const reload = () => {
-      void fetchAllContacts().then((list) => {
-        if (cancelled || !list) return;
-        cachedContacts = list;
-        setContacts(list);
-      });
-    };
-    window.addEventListener(MESSAGES_CHANGED_EVENT, reload);
-    window.addEventListener("focus", reload);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(MESSAGES_CHANGED_EVENT, reload);
-      window.removeEventListener("focus", reload);
-    };
-  }, []);
-
-  return contacts;
-}
+const contactsCache: { rows: ContactRow[] | null } = { rows: null };
 
 /**
  * The Contacts list: search box, tag filter, table and paging. Once all
@@ -91,7 +41,7 @@ export function ContactsExplorer({
   const [page, setPage] = useState(initialPage);
   const deferredSearch = useDeferredValue(search);
 
-  const allContacts = useAllContacts(serverContacts);
+  const allContacts = useAllRows<ContactRow>("/api/contacts/index", "contacts", contactsCache, serverContacts);
   const serverIndex = useMemo(() => buildSearchIndex(serverContacts), [serverContacts]);
   const fullIndex = useMemo(() => (allContacts ? buildSearchIndex(allContacts) : null), [allContacts]);
 
