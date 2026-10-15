@@ -10,6 +10,11 @@ export const TAG_OPTIONS: string[] = [
   "IFA",
   "Distributors",
   "Leads",
+  "HNI Professional",
+  "HNI Founder",
+  "GRI / Real Estate",
+  "Friends",
+  "Family Office",
 ];
 
 // Contacts with either of these tags are the ones shown on the Investors page.
@@ -31,4 +36,9 @@ export const TAG_COLORS: Record<string, string> = {
   IFA: "#ec4899",
   Distributors: "#84cc16",
   Leads: "#f97316",
+  "HNI Professional": "#0ea5e9",
+  "HNI Founder": "#a855f7",
+  "GRI / Real Estate": "#22c55e",
+  "Friends": "#eab308",
+  "Family Office": "#f43f5e",
 };
