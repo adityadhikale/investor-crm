@@ -18,7 +18,7 @@ const ERROR_EXPLANATIONS: Record<number, string> = {
   131047: "The 24-hour reply window is closed; only approved templates can be sent.",
   131048: "Blocked as spam: too many messages to this number were reported or ignored.",
   131049:
-    "Meta limited this marketing message: this person has already received many marketing messages from businesses, so WhatsApp held it back. Try a Utility template, or ask them to message you first.",
+    "WhatsApp held back this marketing message: this person has already received many marketing messages from businesses recently, or hasn't engaged with them, so Meta limits more. It isn't a CRM problem and you aren't charged. Ask them to message you first (then you can reply freely, even with files), or try again after a few days.",
   131050: "This person has opted out of marketing messages from businesses.",
   131051: "The message type isn't supported.",
   131052: "The media file couldn't be downloaded by WhatsApp.",
@@ -49,6 +49,19 @@ export function describeDeliveryError(
  * can be matched later. Until the delivery-status migration is run, the new
  * columns don't exist; then the message is saved without them.
  */
+/** The columns the chat needs to show a message right after it is saved. */
+const SAVED_COLUMNS = "id, direction, message_text, media_url, sent_at, created_at, status, status_error";
+export type SavedMessage = {
+  id: string;
+  direction: string;
+  message_text: string | null;
+  media_url: string | null;
+  sent_at: string | null;
+  created_at: string;
+  status?: "sent" | "delivered" | "read" | "failed" | null;
+  status_error?: string | null;
+};
+
 export async function insertOutboundMessage(
   supabase: SupabaseClient,
   row: {
@@ -58,7 +71,7 @@ export async function insertOutboundMessage(
     sent_at?: string;
   },
   wamid: string | undefined,
-): Promise<{ error: { message: string } | null }> {
+): Promise<{ error: { message: string } | null; message?: SavedMessage }> {
   const base = {
     contact_id: row.contact_id,
     direction: "out",
@@ -70,15 +83,17 @@ export async function insertOutboundMessage(
   if (wamid) {
     const withStatus = await supabase
       .from("whatsapp_messages")
-      .insert({ ...base, wamid, status: "sent", status_at: base.sent_at });
-    if (!withStatus.error) return { error: null };
+      .insert({ ...base, wamid, status: "sent", status_at: base.sent_at })
+      .select(SAVED_COLUMNS)
+      .single();
+    if (!withStatus.error) return { error: null, message: withStatus.data as unknown as SavedMessage };
     // The webhook already saved this message (an echo arrived first): nothing to add.
     if (withStatus.error.code === "23505") return { error: null };
     if (!/wamid|status/i.test(withStatus.error.message)) return { error: withStatus.error };
   }
 
-  const { error } = await supabase.from("whatsapp_messages").insert(base);
-  return { error };
+  const { data, error } = await supabase.from("whatsapp_messages").insert(base).select(SAVED_COLUMNS).single();
+  return { error, message: error ? undefined : (data as unknown as SavedMessage) };
 }
 
 /**

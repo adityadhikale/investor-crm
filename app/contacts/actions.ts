@@ -21,7 +21,7 @@ import { TAG_OPTIONS } from "@/lib/tags";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { linkUnmatchedMessages } from "@/lib/link-messages";
-import { insertOutboundMessage } from "@/lib/message-status";
+import { insertOutboundMessage, type SavedMessage } from "@/lib/message-status";
 
 // The live host (Netlify) rejects requests over about 6MB, so keep these under that.
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -394,7 +394,7 @@ export async function getMeetingNotes(contactId: string) {
 }
 
 export type SendWhatsAppReplyResult =
-  | { success: true }
+  | { success: true; message?: SavedMessage }
   | { error: string };
 
 const REPLY_WINDOW_CLOSED_ERROR =
@@ -469,7 +469,7 @@ export async function sendWhatsAppReply(
     return { error: messageText };
   }
 
-  const { error: insertError } = await insertOutboundMessage(
+  const { error: insertError, message: savedMessage } = await insertOutboundMessage(
     supabase,
     { contact_id: normalizedContactId, message_text: normalizedMessage },
     wamid,
@@ -481,10 +481,8 @@ export async function sendWhatsAppReply(
     return { error: "Message sent, but could not be saved to WhatsApp history." };
   }
 
-  revalidatePath(`/contacts/${normalizedContactId}`);
-  revalidatePath(`/investors/${normalizedContactId}`);
-
-  return { success: true };
+  // No page re-render here: the chat adds the saved message itself, so the reply isn't slowed down.
+  return { success: true, message: savedMessage };
 }
 
 /**
@@ -549,7 +547,7 @@ export async function sendWhatsAppTemplateToContact(
     sentText = sentText.replaceAll(`{{${ph}}}`, values[index]);
   });
 
-  const { error: insertError } = await insertOutboundMessage(
+  const { error: insertError, message: savedMessage } = await insertOutboundMessage(
     supabase,
     { contact_id: contact.id, message_text: sentText },
     wamid,
@@ -558,15 +556,14 @@ export async function sendWhatsAppTemplateToContact(
     return { error: "Template sent, but could not be saved to WhatsApp history." };
   }
 
-  revalidatePath(`/contacts/${contact.id}`);
-  revalidatePath(`/investors/${contact.id}`);
-  return { success: true };
+  // No page re-render here: the chat adds the saved message itself, so the reply isn't slowed down.
+  return { success: true, message: savedMessage };
 }
 
 const MAX_WHATSAPP_MEDIA_BYTES = 16 * 1024 * 1024; // 16MB, matches Meta's video/audio limit
 
 export type SendWhatsAppMediaReplyResult =
-  | { success: true }
+  | { success: true; message?: SavedMessage }
   | { error: string };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -646,7 +643,7 @@ export async function resendFailedWhatsAppMessage(messageId: string): Promise<Se
     return { error: err instanceof Error ? err.message : "WhatsApp could not send this message." };
   }
 
-  const { error: insertError } = await insertOutboundMessage(
+  const { error: insertError, message: savedMessage } = await insertOutboundMessage(
     supabase,
     { contact_id: contactId, message_text: original.message_text, media_url: original.media_url },
     wamid,
@@ -659,9 +656,8 @@ export async function resendFailedWhatsAppMessage(messageId: string): Promise<Se
     .eq("status", "failed");
   if (insertError) return { error: "Message sent, but could not be saved to WhatsApp history." };
 
-  revalidatePath(`/contacts/${contactId}`);
-  revalidatePath(`/investors/${contactId}`);
-  return { success: true };
+  // No page re-render here: the chat adds the saved message itself, so the reply isn't slowed down.
+  return { success: true, message: savedMessage };
 }
 
 /**
@@ -767,7 +763,7 @@ export async function sendWhatsAppMediaFromStorage(
     return { error: msg };
   }
 
-  const { error: insertError } = await insertOutboundMessage(
+  const { error: insertError, message: savedMessage } = await insertOutboundMessage(
     supabase,
     {
       contact_id: normalizedContactId,
@@ -781,10 +777,8 @@ export async function sendWhatsAppMediaFromStorage(
     return { error: "File sent, but could not be saved to WhatsApp history." };
   }
 
-  revalidatePath(`/contacts/${normalizedContactId}`);
-  revalidatePath(`/investors/${normalizedContactId}`);
-
-  return { success: true };
+  // No page re-render here: the chat adds the saved message itself, so the reply isn't slowed down.
+  return { success: true, message: savedMessage };
 }
 
 export async function updateMeetingNote(

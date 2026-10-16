@@ -54,6 +54,7 @@ import {
 import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
 import { markReadAndNotify } from "@/lib/unread-events";
 import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
+import { MESSAGES_CHANGED_EVENT } from "@/lib/unread-events";
 import {
   WhatsAppHistory,
   type WhatsAppMessage,
@@ -216,7 +217,9 @@ export function ContactDetail({
         return { error: result.error };
       }
       toast("Message sent.");
-      router.refresh();
+      // The chat shows the saved message itself; tell the rest of the app in the background.
+      window.dispatchEvent(new Event(MESSAGES_CHANGED_EVENT));
+      return { message: "message" in result ? result.message : undefined };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to send message.";
       return { error: msg };
@@ -232,7 +235,8 @@ export function ContactDetail({
       return { error: result.error };
     }
     toast("Message sent again.");
-    router.refresh();
+    window.dispatchEvent(new Event(MESSAGES_CHANGED_EVENT));
+    return { message: "message" in result ? result.message : undefined };
   }
 
   async function handleSendTemplate(templateId: string, params: string[]) {
@@ -241,7 +245,8 @@ export function ContactDetail({
       return { error: result.error };
     }
     toast("Template sent.");
-    router.refresh();
+    window.dispatchEvent(new Event(MESSAGES_CHANGED_EVENT));
+    return { message: "message" in result ? result.message : undefined };
   }
 
   const [isSendingMedia, setIsSendingMedia] = useState(false);
@@ -263,7 +268,8 @@ export function ContactDetail({
         return { error: result.error };
       }
       toast("File sent.");
-      router.refresh();
+      window.dispatchEvent(new Event(MESSAGES_CHANGED_EVENT));
+      return { message: "message" in result ? result.message : undefined };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to send file.";
       return { error: msg };

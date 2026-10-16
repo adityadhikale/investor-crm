@@ -31,6 +31,7 @@ function placeholdersOf(body: string): string[] {
 export function SendTemplateForm({
   contactName,
   windowOpen,
+  recentlyLimited = false,
   onSendMetaTemplate,
   onSendText,
   onClose,
@@ -38,6 +39,8 @@ export function SendTemplateForm({
   contactName: string;
   /** Whether the contact messaged in the last 24 hours. */
   windowOpen: boolean;
+  /** WhatsApp recently held back a marketing message to this contact (error 131049). */
+  recentlyLimited?: boolean;
   onSendMetaTemplate?: (templateId: string, params: string[]) => Promise<{ error?: string } | void>;
   onSendText?: (message: string) => Promise<{ error?: string } | void>;
   onClose: () => void;
@@ -214,6 +217,14 @@ export function SendTemplateForm({
           {template && (
             <p className="whitespace-pre-wrap rounded-md border bg-background p-2 text-foreground/90">
               {preview}
+            </p>
+          )}
+
+          {recentlyLimited && template?.kind === "meta" && (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-400">
+              WhatsApp recently held back a marketing message to this person (they have received many
+              from businesses). Another one may fail too. Ask them to message you first, or try again
+              after a few days.
             </p>
           )}
 

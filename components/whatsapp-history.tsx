@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -40,7 +40,7 @@ export type WhatsAppMessage = {
   sent_at: string | null;
   created_at: string;
   /** Delivery state of a message we sent, as reported by WhatsApp. */
-  status?: "sent" | "delivered" | "read" | "failed" | null;
+  status?: "sending" | "sent" | "delivered" | "read" | "failed" | null;
   /** Why WhatsApp couldn't deliver it, when status is "failed". */
   status_error?: string | null;
 };
@@ -55,18 +55,18 @@ export type WhatsAppHistoryProps = {
   onRefreshSummary?: () => void;
   isGeneratingSummary?: boolean;
   summaryError?: string | null;
-  onSendReply?: (message: string) => Promise<{ error?: string } | void>;
+  onSendReply?: (message: string) => Promise<{ error?: string; message?: WhatsAppMessage } | void>;
   isSendingReply?: boolean;
-  onSendMedia?: (file: File, caption: string) => Promise<{ error?: string } | void>;
+  onSendMedia?: (file: File, caption: string) => Promise<{ error?: string; message?: WhatsAppMessage } | void>;
   isSendingMedia?: boolean;
   /** Called each time the full-history panel is opened (used to mark the chat as read). */
   onOpened?: () => void;
   /** Unread inbound messages; shown as a badge until the full history is opened. */
   unreadCount?: number;
   /** Sends a failed message again (only offered while the 24-hour reply window is open). */
-  onResendMessage?: (messageId: string) => Promise<{ error?: string } | void>;
+  onResendMessage?: (messageId: string) => Promise<{ error?: string; message?: WhatsAppMessage } | void>;
   /** Sends a Meta-approved template (works outside the 24-hour window). */
-  onSendTemplate?: (templateId: string, params: string[]) => Promise<{ error?: string } | void>;
+  onSendTemplate?: (templateId: string, params: string[]) => Promise<{ error?: string; message?: WhatsAppMessage } | void>;
   /** Used to pre-fill {{1}} with the contact's first name. */
   contactName?: string;
 };
@@ -75,6 +75,9 @@ const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** WhatsApp-style ticks: one = accepted, two = delivered, blue = read, red ! = failed. */
 function DeliveryTicks({ status }: { status?: WhatsAppMessage["status"] }) {
+  if (status === "sending") {
+    return <Clock className="size-3 opacity-60" aria-label="Sending" />;
+  }
   if (status === "failed") {
     return <AlertCircle className="size-3 text-red-500" aria-label="Not delivered" />;
   }
@@ -247,7 +250,7 @@ function formatWhatsAppDate(sentAt: string | null, createdAt: string) {
 }
 
 export function WhatsAppHistory({
-  messages,
+  messages: serverMessages,
   error = null,
   isLoading = false,
   className,
@@ -269,6 +272,42 @@ export function WhatsAppHistory({
   const [open, setOpen] = useState(false);
   const [templateFormOpen, setTemplateFormOpen] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  // Messages we just sent, shown straight away while the server catches up.
+  const [localMessages, setLocalMessages] = useState<WhatsAppMessage[]>([]);
+  const messages = useMemo(() => {
+    if (localMessages.length === 0) return serverMessages;
+    const known = new Set(serverMessages.map((message) => message.id));
+    const extra = localMessages.filter((message) => !known.has(message.id));
+    if (extra.length === 0) return serverMessages;
+    const time = (message: WhatsAppMessage) => Date.parse(message.sent_at ?? message.created_at) || 0;
+    return [...serverMessages, ...extra].sort((a, b) => time(a) - time(b));
+  }, [serverMessages, localMessages]);
+
+  function addLocalMessage(message: WhatsAppMessage | undefined) {
+    if (message) setLocalMessages((current) => [...current, message]);
+  }
+
+  function makePendingMessage(text: string): WhatsAppMessage {
+    const now = new Date().toISOString();
+    return {
+      id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      direction: "out",
+      message_text: text,
+      media_url: null,
+      sent_at: now,
+      created_at: now,
+      status: "sending",
+      status_error: null,
+    };
+  }
+
+  /** Swaps a "sending" bubble for the saved message (or removes it if there is none). */
+  function settlePendingMessage(pendingId: string, saved: WhatsAppMessage | undefined) {
+    setLocalMessages((current) => {
+      const rest = current.filter((message) => message.id !== pendingId);
+      return saved ? [...rest, saved] : rest;
+    });
+  }
   const [unread, setUnread] = useState(unreadCount);
   const [replyText, setReplyText] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
@@ -281,21 +320,51 @@ export function WhatsAppHistory({
   const [now, setNow] = useState(0);
   // Free-form messages only reach the contact within 24 h of their last message.
   const windowOpen = now > 0 && now - lastInboundTime(messages) < REPLY_WINDOW_MS;
+  // Did WhatsApp hold back a marketing message to this contact in the last 7 days (error 131049)?
+  const recentlyLimited = useMemo(
+    () =>
+      now > 0 &&
+      messages.some(
+        (message) =>
+          message.direction === "out" && message.status === "failed" &&
+          /code 131049/.test(message.status_error ?? "") &&
+          now - (Date.parse(message.sent_at ?? message.created_at) || 0) < 7 * 24 * 60 * 60 * 1000,
+      ),
+    [messages, now],
+  );
 
   // While the chat is open, refresh as soon as the database reports a new
   // message (live), and every 10 s as a fallback so new messages and the window
   // countdown stay current (paused while the browser tab is hidden).
   useEffect(() => {
     if (!open) return;
-    const refreshNow = () => {
-      setNow(Date.now());
+    // Several triggers can fire together (our own send, the live message push, a
+    // delivery status); refresh at most about once every 1.5 s, with a final
+    // refresh after a burst, so refreshes don't pile up and slow each other.
+    let lastRun = 0;
+    let trailing: number | null = null;
+    const run = () => {
+      lastRun = Date.now();
+      setNow(lastRun);
       router.refresh();
+    };
+    const refreshNow = () => {
+      const wait = 1500 - (Date.now() - lastRun);
+      if (wait <= 0) {
+        run();
+      } else if (trailing === null) {
+        trailing = window.setTimeout(() => {
+          trailing = null;
+          run();
+        }, wait);
+      }
     };
     window.addEventListener(MESSAGES_CHANGED_EVENT, refreshNow);
     const stopPolling = startVisibleInterval(refreshNow, 10_000);
     return () => {
       window.removeEventListener(MESSAGES_CHANGED_EVENT, refreshNow);
       stopPolling();
+      if (trailing !== null) window.clearTimeout(trailing);
     };
   }, [open, router]);
 
@@ -330,24 +399,38 @@ export function WhatsAppHistory({
 
     if (selectedFile) {
       if (!onSendMedia) return;
-      const result = await onSendMedia(selectedFile, trimmed);
-      if (result && "error" in result && result.error) {
-        setReplyError(result.error);
-        return;
-      }
+      const file = selectedFile;
+      // Show it at once and clear the box; put everything back if sending fails.
+      const pending = makePendingMessage(trimmed || file.name);
+      setLocalMessages((current) => [...current, pending]);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setReplyText("");
+      const result = await onSendMedia(file, trimmed);
+      if (result && "error" in result && result.error) {
+        settlePendingMessage(pending.id, undefined);
+        setSelectedFile(file);
+        setReplyText(trimmed);
+        setReplyError(result.error);
+        return;
+      }
+      settlePendingMessage(pending.id, result?.message);
       return;
     }
 
     if (!trimmed || !onSendReply) return;
+    // Show the message at once and clear the box; put it back if sending fails.
+    const pending = makePendingMessage(trimmed);
+    setLocalMessages((current) => [...current, pending]);
+    setReplyText("");
     const result = await onSendReply(trimmed);
     if (result && "error" in result && result.error) {
+      settlePendingMessage(pending.id, undefined);
+      setReplyText(trimmed);
       setReplyError(result.error);
       return;
     }
-    setReplyText("");
+    settlePendingMessage(pending.id, result?.message);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -606,7 +689,8 @@ export function WhatsAppHistory({
                                 disabled={resendingId !== null}
                                 onClick={async () => {
                                   setResendingId(message.id);
-                                  await onResendMessage(message.id);
+                                  const result = await onResendMessage(message.id);
+                                  if (result && result.message) addLocalMessage(result.message);
                                   setResendingId(null);
                                 }}
                                 className="mt-1 font-medium underline underline-offset-2 disabled:opacity-60"
@@ -658,8 +742,25 @@ export function WhatsAppHistory({
                 <SendTemplateForm
                   contactName={contactName}
                   windowOpen={windowOpen}
-                  onSendMetaTemplate={onSendTemplate}
-                  onSendText={onSendReply}
+                  recentlyLimited={recentlyLimited}
+                  onSendMetaTemplate={
+                    onSendTemplate
+                      ? async (templateId, params) => {
+                          const result = await onSendTemplate(templateId, params);
+                          if (result && result.message) addLocalMessage(result.message);
+                          return result;
+                        }
+                      : undefined
+                  }
+                  onSendText={
+                    onSendReply
+                      ? async (text) => {
+                          const result = await onSendReply(text);
+                          if (result && result.message) addLocalMessage(result.message);
+                          return result;
+                        }
+                      : undefined
+                  }
                   onClose={() => setTemplateFormOpen(false)}
                 />
               )}

@@ -61,6 +61,22 @@ export function BroadcastDeliveryResultsPanel({ results }: { results?: Broadcast
         </p>
       )}
 
+      {results.marketingLimited > 0 && (
+        <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-300">
+          <p className="font-medium">
+            {results.marketingLimited} {results.marketingLimited === 1 ? "person" : "people"} hit
+            WhatsApp&apos;s marketing limit (code 131049)
+          </p>
+          <p className="mt-1 text-xs">
+            Meta holds back marketing messages to people who have already received many from
+            businesses. It isn&apos;t a CRM problem and you aren&apos;t charged. What works: ask them
+            to message you first (then you can reply freely, even with files), try again after a few
+            days, or use a Utility-category template for genuinely transactional messages. Sending
+            the same marketing template again right away usually fails again.
+          </p>
+        </div>
+      )}
+
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-md border p-3">
           <p className="text-xs text-muted-foreground">Delivered</p>

@@ -13,6 +13,8 @@ export interface BroadcastDeliveryResults {
   failures: Array<{ name: string; reason: string }>;
   /** At least one message failed because of a WhatsApp billing problem (code 131042). */
   billingProblem: boolean;
+  /** Messages WhatsApp held back because the person received too many marketing messages (code 131049). */
+  marketingLimited: number;
 }
 
 const CHUNK = 100;
@@ -51,6 +53,7 @@ export async function getBroadcastDeliveryResults(
     failed: 0,
     failures: [],
     billingProblem: false,
+    marketingLimited: 0,
   };
 
   const seen = new Set<string>();
@@ -68,6 +71,7 @@ export async function getBroadcastDeliveryResults(
         results.failed++;
         const reason = row.status_error ?? "WhatsApp could not deliver this message.";
         if (/code 131042/.test(reason)) results.billingProblem = true;
+        if (/code 131049/.test(reason)) results.marketingLimited++;
         if (results.failures.length < 100) {
           results.failures.push({ name: nameByWamid.get(row.wamid) ?? "Unknown", reason });
         }
