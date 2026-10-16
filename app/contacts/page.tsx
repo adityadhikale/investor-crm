@@ -3,6 +3,7 @@ import { requireAuthFast } from "@/lib/auth";
 import { AddContactDialog } from "@/components/add-contact-dialog";
 import type { ContactRow } from "@/components/contact-details-dialog";
 import { ImportContactsDialog } from "@/components/import-contacts-dialog";
+import { UpdateContactsDialog } from "@/components/update-contacts-dialog";
 import { ContactsExplorer } from "@/components/contacts-explorer";
 import { getPageRange, getTotalPages, parsePage } from "@/lib/pagination";
 import { getUnreadCountsByContact } from "@/lib/unread";
@@ -28,7 +29,7 @@ export default async function ContactsPage({
 
   const { supabase } = await requireAuthFast();
 
-  const searchFilter = ilikeAnyFilter(["name", "phone", "email"], search);
+  const searchFilter = ilikeAnyFilter(["name", "phone", "email", "company"], search);
 
   function buildFilteredCountQuery() {
     let query = supabase
@@ -47,8 +48,8 @@ export default async function ContactsPage({
       .from("contacts")
       .select(
         withLastMessage
-          ? "id, name, phone, email, tags, date_saved, notes, last_message_at, last_message_text, last_message_direction, contact_groups(groups(id, name))"
-          : "id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))"
+          ? "id, name, phone, email, company, tags, date_saved, notes, last_message_at, last_message_text, last_message_direction, contact_groups(groups(id, name))"
+          : "id, name, phone, email, company, tags, date_saved, notes, contact_groups(groups(id, name))"
       )
       .is("deleted_at", null);
 
@@ -149,6 +150,7 @@ export default async function ContactsPage({
         </div>
 
         <div className="flex items-center gap-2">
+          <UpdateContactsDialog />
           <ImportContactsDialog />
           <AddContactDialog />
         </div>

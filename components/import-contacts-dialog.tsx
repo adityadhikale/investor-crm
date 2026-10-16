@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/sheet";
 import { Download, FileText, Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { matchTag } from "@/lib/tag-match";
 
 type ContactField = keyof ImportContactRow;
 type Mapping = Record<number, ContactField | "skip">;
@@ -40,6 +41,7 @@ const CONTACT_FIELDS: Array<{ value: ContactField; label: string; required: bool
   { value: "name", label: "Name", required: true },
   { value: "phone", label: "Phone", required: true },
   { value: "email", label: "Email", required: false },
+  { value: "company", label: "Company", required: false },
   { value: "tag", label: "Tag", required: false },
   { value: "dateSaved", label: "Date Saved", required: false },
   { value: "notes", label: "Notes", required: false },
@@ -102,12 +104,13 @@ function validateRow(row: ImportContactRow) {
   if (!/^\d{7,15}$/.test(row.phone)) return "Phone must contain 7-15 digits.";
   if (row.email && !EMAIL_REGEX.test(row.email)) return "Please enter a valid email address.";
   if (row.dateSaved && !isValidDate(row.dateSaved)) return "Date Saved must use YYYY-MM-DD.";
+  if (row.tag && !matchTag(row.tag)) return `Unknown tag "${row.tag}". Use one of the CRM's tags.`;
   return null;
 }
 
 function getMappedRows(csv: CsvData, mapping: Mapping): MappedRow[] {
   return csv.rows.map((cells) => {
-    const row: ImportContactRow = { name: "", phone: "", email: null, tag: "", dateSaved: "", notes: "" };
+    const row: ImportContactRow = { name: "", phone: "", email: null, company: "", tag: "", dateSaved: "", notes: "" };
     Object.entries(mapping).forEach(([index, field]) => {
       if (field !== "skip") {
         const val = cells[Number(index)]?.trim() ?? "";
@@ -191,6 +194,8 @@ export function ImportContactsDialog() {
         matched = "phone";
       } else if (normalized === "email" || normalized === "emailaddress") {
         matched = "email";
+      } else if (normalized === "company" || normalized === "companyname" || normalized === "organisation" || normalized === "organization") {
+        matched = "company";
       } else if (normalized === "tag" || normalized === "tags") {
         matched = "tag";
       } else if (normalized === "datesaved" || normalized === "date" || normalized === "saveddate") {
@@ -370,7 +375,7 @@ export function ImportContactsDialog() {
           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
             <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">Expected columns</p>
-              <p className="mt-2">Name</p><p>Phone</p><p>Email (Optional)</p><p>Tag</p><p>Date Saved (Optional)</p><p>Notes (Optional)</p>
+              <p className="mt-2">Name</p><p>Phone</p><p>Email (Optional)</p><p>Company (Optional)</p><p>Tag</p><p>Date Saved (Optional)</p><p>Notes (Optional)</p>
             </div>
             <div className="space-y-2">
               <input ref={fileInputRef} id="contacts-csv" type="file" accept=".csv,.xlsx,.xls" onChange={handleFileChange} className="sr-only" />

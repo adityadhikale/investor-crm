@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast-provider";
 import { UnreadBadge } from "@/components/unread-badge";
+import { BulkTagDialog } from "@/components/bulk-tag-dialog";
 import {
   Dialog,
   DialogClose,
@@ -38,9 +39,14 @@ export function ContactsTable({
   contacts,
   search,
   unreadCounts = {},
+  matchingIds,
+  totalMatching = 0,
 }: {
   contacts: ContactRow[];
   search: string;
+  /** Ids of every contact matching the current search and tag filter (all pages), when known. */
+  matchingIds?: string[];
+  totalMatching?: number;
   /** Unread WhatsApp message counts keyed by contact id. */
   unreadCounts?: Record<string, number>;
 }) {
@@ -49,6 +55,7 @@ export function ContactsTable({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const contactIds = contacts.map((contact) => contact.id);
   const selectedVisibleCount = contactIds.filter((id) => selectedIds.has(id)).length;
@@ -103,22 +110,54 @@ export function ContactsTable({
 
   return (
     <>
+      <BulkTagDialog
+        open={tagDialogOpen}
+        onOpenChange={setTagDialogOpen}
+        ids={[...selectedIds]}
+        onDone={() => {
+          setSelectedIds(new Set());
+          router.refresh();
+        }}
+      />
       {selectedIds.size > 0 && (
         <div className="mb-3 flex shrink-0 items-center justify-between rounded-lg border bg-background px-4 py-2.5">
           <p className="text-sm font-medium">
             {selectedIds.size} contact{selectedIds.size === 1 ? "" : "s"} selected
+            {matchingIds && totalMatching > contacts.length && allSelected && selectedIds.size < totalMatching && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set(matchingIds))}
+                className="ml-3 font-normal text-primary underline underline-offset-2"
+              >
+                Select all {totalMatching.toLocaleString("en-IN")} matching contacts
+              </button>
+            )}
+            {matchingIds && selectedIds.size > contacts.length && selectedIds.size === totalMatching && (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="ml-3 font-normal text-muted-foreground underline underline-offset-2"
+              >
+                Clear selection
+              </button>
+            )}
           </p>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={() => {
-              setConfirmingDelete(true);
-            }}
-            disabled={deleting}
-          >
-            Delete
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setTagDialogOpen(true)} disabled={deleting}>
+              Change tag
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setConfirmingDelete(true);
+              }}
+              disabled={deleting}
+            >
+              Delete
+            </Button>
+          </div>
         </div>
       )}
 
@@ -137,11 +176,12 @@ export function ContactsTable({
                     className="size-4 cursor-pointer accent-primary"
                   />
                 </th>
-                <th className="w-[20%] px-5 py-2.5 sm:py-3 font-medium">Name</th>
-                <th className="w-[18%] px-5 py-2.5 sm:py-3 font-medium">Phone</th>
-                <th className="w-[22%] px-5 py-2.5 sm:py-3 font-medium">Email</th>
-                <th className="w-[20%] px-5 py-2.5 sm:py-3 font-medium">Tags</th>
-                <th className="w-[20%] px-5 py-2.5 sm:py-3 font-medium">Groups</th>
+                <th className="w-[17%] px-5 py-2.5 sm:py-3 font-medium">Name</th>
+                <th className="w-[16%] px-5 py-2.5 sm:py-3 font-medium">Company</th>
+                <th className="w-[13%] px-5 py-2.5 sm:py-3 font-medium">Phone</th>
+                <th className="w-[19%] px-5 py-2.5 sm:py-3 font-medium">Email</th>
+                <th className="w-[17%] px-5 py-2.5 sm:py-3 font-medium">Tags</th>
+                <th className="w-[16%] px-5 py-2.5 sm:py-3 font-medium">Groups</th>
               </tr>
             </thead>
 
@@ -175,6 +215,9 @@ export function ContactsTable({
                             <span className="shrink-0 opacity-70">{formatChatTime(contact.last_message_at)}</span>
                           </span>
                         )}
+                      </td>
+                      <td className="px-5 py-2.5 sm:py-4 text-muted-foreground">
+                        {contact.company ? <span className="text-foreground">{contact.company}</span> : "—"}
                       </td>
                       <td className="px-5 py-2.5 sm:py-4">{contact.phone}</td>
                       <td className="px-5 py-2.5 sm:py-4 text-muted-foreground">
@@ -227,7 +270,7 @@ export function ContactsTable({
               ) : (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-12 text-center text-muted-foreground"
                   >
                     {search ? "No contacts found." : "No contacts yet."}

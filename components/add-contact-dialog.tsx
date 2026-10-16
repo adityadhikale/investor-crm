@@ -59,6 +59,7 @@ export function AddContactDialog({
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState(initialPhone);
   const [email, setEmail] = useState("");
+  const [company, setCompany] = useState("");
 
   const [nameError, setNameError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
@@ -74,6 +75,7 @@ export function AddContactDialog({
     setName(initialName);
     setPhone(initialPhone);
     setEmail("");
+    setCompany("");
     setNameError(null);
     setPhoneError(null);
     setEmailError(null);
@@ -122,6 +124,7 @@ export function AddContactDialog({
     formData.set("name", trimmedName);
     formData.set("phone", trimmedPhone);
     formData.set("email", trimmedEmail ? trimmedEmail.toLowerCase() : "");
+    formData.set("company", company.trim());
     formData.set(
       "tags",
       JSON.stringify(selectedTag ? [selectedTag] : [])
@@ -238,6 +241,20 @@ export function AddContactDialog({
               {emailError && (
                 <p className="text-sm text-destructive">{emailError}</p>
               )}
+            </div>
+
+            {/* Company (Optional) */}
+            <div className="flex flex-col gap-1.5 sm:gap-2">
+              <Label htmlFor="company">Company</Label>
+
+              <Input
+                id="company"
+                name="company"
+                placeholder="e.g. Acme Pvt Ltd (optional)"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                className="h-9 text-sm sm:h-10"
+              />
             </div>
 
             {/* Tag */}

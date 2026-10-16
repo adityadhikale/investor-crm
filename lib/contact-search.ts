@@ -17,6 +17,7 @@ export interface SearchableContact<T extends ContactRow = ContactRow> {
   words: string[];
   digits: string;
   email: string;
+  company: string;
   /** Time of the latest WhatsApp message (ms), 0 if none. */
   lastAt: number;
   /** Date the contact was saved (ms), 0 if unknown. */
@@ -45,6 +46,7 @@ export function buildSearchIndex<T extends ContactRow>(contacts: T[]): Searchabl
       words: name.split(/[^a-z0-9]+/).filter(Boolean),
       digits: String(contact.phone ?? "").replace(/\D/g, ""),
       email: normalize(contact.email ?? ""),
+      company: normalize(contact.company ?? ""),
       lastAt: toTime(contact.last_message_at),
       savedAt: toTime(contact.date_saved),
     };
@@ -79,6 +81,9 @@ function scoreToken(entry: SearchableContact<ContactRow>, token: string): number
   if (entry.email) {
     if (entry.email.startsWith(token)) best = Math.max(best, 4);
     else if (entry.email.includes(token)) best = Math.max(best, 2);
+  }
+  if (entry.company && entry.company.includes(token)) {
+    best = Math.max(best, entry.company.split(/[^a-z0-9]+/).some((word) => word.startsWith(token)) ? 4 : 2);
   }
   return best;
 }

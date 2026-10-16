@@ -43,7 +43,7 @@ export default async function InvestorsPage({
   let loadError: string | null = null;
 
   try {
-    const searchFilter = ilikeAnyFilter(["name", "phone", "email"], search);
+    const searchFilter = ilikeAnyFilter(["name", "phone", "email", "company"], search);
 
     let countQuery = supabase
       .from("contacts")
@@ -63,7 +63,7 @@ export default async function InvestorsPage({
     const buildContactsQuery = () => {
       let query = supabase
         .from("contacts")
-        .select("id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))")
+        .select("id, name, phone, email, company, tags, date_saved, notes, contact_groups(groups(id, name))")
         .overlaps("tags", INVESTOR_TAGS)
         .is("deleted_at", null);
       if (search) query = query.or(searchFilter);

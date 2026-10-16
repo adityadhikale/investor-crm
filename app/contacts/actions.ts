@@ -18,6 +18,7 @@ import {
   mediaUrlForPath,
 } from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
+import { matchTag } from "@/lib/tag-match";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { linkUnmatchedMessages } from "@/lib/link-messages";
@@ -66,6 +67,7 @@ export async function addContact(formData: FormData) {
   const name = formData.get("name") as string;
   const phone = normalizePhone(String(formData.get("phone") ?? ""));
   const emailRaw = String(formData.get("email") ?? "").trim();
+  const company = String(formData.get("company") ?? "").trim();
   const tagsRaw = formData.get("tags") as string;
   const dateSaved = formData.get("dateSaved") as string;
   const notes = String(formData.get("notes") ?? "").trim();
@@ -112,6 +114,7 @@ export async function addContact(formData: FormData) {
       name,
       phone,
       email: normalizedEmail,
+      company: company || null,
       tags,
       date_saved: dateSaved || null,
       notes: notes || null,
@@ -138,6 +141,7 @@ export async function updateContact(id: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const phone = normalizePhone(String(formData.get("phone") ?? ""));
   const emailRaw = String(formData.get("email") ?? "").trim();
+  const company = String(formData.get("company") ?? "").trim();
   const tagsRaw = String(formData.get("tags") ?? "");
   const dateSaved = String(formData.get("dateSaved") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
@@ -204,6 +208,7 @@ export async function updateContact(id: string, formData: FormData) {
       name,
       phone,
       email: normalizedEmail,
+      company: company || null,
       tags,
       date_saved: dateSaved || null,
       notes: notes || null,
@@ -998,6 +1003,7 @@ export type ImportContactRow = {
   name: string;
   phone: string;
   email?: string | null;
+  company?: string;
   tag: string;
   dateSaved: string;
   notes: string;
@@ -1029,6 +1035,10 @@ function validateImportRow(row: ImportContactRow) {
 
   if (row.dateSaved && !isValidDate(row.dateSaved)) {
     return "Date Saved must use a valid YYYY-MM-DD date.";
+  }
+
+  if (row.tag && !matchTag(row.tag)) {
+    return `Unknown tag "${row.tag}".`;
   }
 
   return null;
@@ -1074,6 +1084,7 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
         name: String(rowObj.name ?? "").trim(),
         phone: String(rowObj.phone ?? "").trim(),
         email: emailRaw || null,
+        company: String(rowObj.company ?? "").trim(),
         tag: String(rowObj.tag ?? "").trim(),
         dateSaved: String(rowObj.dateSaved ?? "").trim(),
         notes: String(rowObj.notes ?? "").trim(),
@@ -1137,7 +1148,8 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
       name: row.name,
       phone: normalizePhone(row.phone),
       email: row.email ? row.email.toLowerCase() : null,
-      tags: row.tag ? [row.tag] : [],
+      company: row.company || null,
+      tags: row.tag ? [matchTag(row.tag) ?? row.tag] : [],
       date_saved: row.dateSaved || null,
       notes: row.notes || null,
     }));

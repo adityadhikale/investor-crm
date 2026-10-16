@@ -43,7 +43,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Copy, Plus, Trash2, ExternalLink, Mail, Phone, Pencil, X } from "lucide-react";
+import { Building2, Copy, Plus, Trash2, ExternalLink, Mail, Phone, Pencil, X } from "lucide-react";
 import {
   DateSavedPicker,
   parseISODate,
@@ -58,6 +58,7 @@ export type ContactRow = {
   tags: string[] | null;
   date_saved: string | null;
   notes?: string | null;
+  company?: string | null;
   /** Latest WhatsApp message with this contact (set by the chat-list migration). */
   last_message_at?: string | null;
   last_message_text?: string | null;
@@ -112,6 +113,7 @@ export function ContactDetailsDialog({
   const [name, setName] = useState(contact.name);
   const [phone, setPhone] = useState(contact.phone);
   const [email, setEmail] = useState(contact.email ?? "");
+  const [company, setCompany] = useState(contact.company ?? "");
   const [tag, setTag] = useState(contact.tags?.[0] ?? "");
   const [dateSaved, setDateSaved] = useState(contact.date_saved ? contact.date_saved.slice(0, 10) : "");
   const [notes, setNotes] = useState(contact.notes ?? "");
@@ -133,6 +135,7 @@ export function ContactDetailsDialog({
     setName(contact.name);
     setPhone(contact.phone);
     setEmail(contact.email ?? "");
+    setCompany(contact.company ?? "");
     setTag(contact.tags?.[0] ?? "");
     setDateSaved(contact.date_saved ? contact.date_saved.slice(0, 10) : "");
     setNotes(contact.notes ?? "");
@@ -268,6 +271,7 @@ export function ContactDetailsDialog({
     formData.set("name", trimmedName);
     formData.set("phone", trimmedPhone);
     formData.set("email", trimmedEmail ? trimmedEmail.toLowerCase() : "");
+    formData.set("company", company.trim());
     // The form edits only the main (first) tag; keep the contact's other tags.
     const mainTag = tag.trim();
     const otherTags = (currentContact.tags ?? [])
@@ -292,6 +296,7 @@ export function ContactDetailsDialog({
       name: trimmedName,
       phone: trimmedPhone,
       email: trimmedEmail ? trimmedEmail.toLowerCase() : null,
+      company: company.trim() || null,
       tags: nextTags,
       date_saved: dateSaved || null,
       notes: trimmedNotes || null,
@@ -369,6 +374,17 @@ export function ContactDetailsDialog({
                     placeholder="e.g. john@example.com (optional)"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
+                    className="h-9 text-sm sm:h-10"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5 sm:gap-2">
+                  <Label htmlFor={`edit-company-${currentContact.id}`}>Company</Label>
+                  <Input
+                    id={`edit-company-${currentContact.id}`}
+                    placeholder="e.g. Acme Pvt Ltd (optional)"
+                    value={company}
+                    onChange={(event) => setCompany(event.target.value)}
                     className="h-9 text-sm sm:h-10"
                   />
                 </div>
@@ -497,6 +513,14 @@ export function ContactDetailsDialog({
                       >
                         <Copy className="size-3.5" />
                       </Button>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2 text-sm">
+                      <Building2 className="size-4 shrink-0 text-muted-foreground" />
+                      {currentContact.company ? (
+                        <span className="truncate">{currentContact.company}</span>
+                      ) : (
+                        <span className="text-muted-foreground">No company added</span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2 text-sm">

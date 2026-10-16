@@ -9,6 +9,7 @@ type ContactExportRow = {
   name: string | null;
   phone: string | null;
   email: string | null;
+  company: string | null;
   tags: string[] | null;
   notes: string | null;
   date_saved: string | null;
@@ -37,7 +38,7 @@ export async function GET() {
     contacts = await fetchAllPages<ContactExportRow>((from, to) =>
       supabase
         .from("contacts")
-        .select("id, name, phone, email, tags, notes, date_saved")
+        .select("id, name, phone, email, company, tags, notes, date_saved")
         .is("deleted_at", null)
         .order("name", { ascending: true })
         .order("id", { ascending: true })
@@ -47,7 +48,7 @@ export async function GET() {
     return NextResponse.json({ error: "Contacts could not be exported." }, { status: 500 });
   }
 
-  const header = ["Name", "Phone", "Email", "Tags", "Notes", "Date Saved"];
+  const header = ["Name", "Phone", "Email", "Company", "Tags", "Notes", "Date Saved"];
   const lines = [
     header.map(csvCell).join(","),
     ...contacts.map((contact) =>
@@ -55,6 +56,7 @@ export async function GET() {
         contact.name,
         contact.phone,
         contact.email,
+        contact.company,
         (contact.tags ?? []).join("; "),
         contact.notes,
         contact.date_saved?.slice(0, 10),

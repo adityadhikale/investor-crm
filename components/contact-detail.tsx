@@ -639,6 +639,14 @@ export function ContactDetail({
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</p>
               <p className="mt-1 font-medium">{contact.name}</p>
             </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+              {contact.company ? (
+                <p className="mt-1">{contact.company}</p>
+              ) : (
+                <p className="mt-1 text-muted-foreground">No company added</p>
+              )}
+            </div>
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</p>

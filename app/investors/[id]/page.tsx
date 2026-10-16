@@ -21,7 +21,7 @@ export default async function InvestorDetailPage({
   const { data: contact, error: contactError } = await supabase
     .from("contacts")
     .select(
-      "id, name, phone, email, tags, date_saved, notes, whatsapp_summary, whatsapp_summary_generated_at, contact_groups(groups(id, name))"
+      "id, name, phone, email, company, tags, date_saved, notes, whatsapp_summary, whatsapp_summary_generated_at, contact_groups(groups(id, name))"
     )
     .eq("id", id)
     .is("deleted_at", null)

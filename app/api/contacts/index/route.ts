@@ -5,7 +5,7 @@ import { fetchAllPages } from "@/lib/supabase-pagination";
 
 export const dynamic = "force-dynamic";
 
-const BASE_COLUMNS = "id, name, phone, email, tags, date_saved, notes, contact_groups(groups(id, name))";
+const BASE_COLUMNS = "id, name, phone, email, company, tags, date_saved, notes, contact_groups(groups(id, name))";
 const WITH_LAST_MESSAGE = `${BASE_COLUMNS}, last_message_at, last_message_text, last_message_direction`;
 
 /**

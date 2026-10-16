@@ -52,13 +52,18 @@ export function ContactsExplorer({
       const totalPages = getTotalPages(matches.length);
       const currentPage = Math.min(page, totalPages);
       const { from, to } = getPageRange(currentPage);
-      return { rows: matches.slice(from, to + 1), total: matches.length, page: currentPage };
+      return {
+        rows: matches.slice(from, to + 1),
+        total: matches.length,
+        page: currentPage,
+        matchingIds: matches.map((contact) => contact.id),
+      };
     }
     // Not loaded yet: filter the page the server sent.
     const unchanged = !trimmed && tags.join(",") === initialTags.join(",");
-    if (unchanged) return { rows: serverContacts, total: serverFilteredCount, page: initialPage };
+    if (unchanged) return { rows: serverContacts, total: serverFilteredCount, page: initialPage, matchingIds: undefined };
     const matches = searchContacts(serverIndex, trimmed, tags);
-    return { rows: matches, total: matches.length, page: 1 };
+    return { rows: matches, total: matches.length, page: 1, matchingIds: undefined };
   }, [deferredSearch, tags, page, fullIndex, serverContacts, serverIndex, serverFilteredCount, initialPage, initialTags]);
 
   // Keep the address bar in step (so a refresh or shared link shows the same view) without a server round trip.
@@ -112,6 +117,8 @@ export function ContactsExplorer({
         <ContactsTable
           key={`${deferredSearch.trim()}-${tags.join(",")}-${view.page}`}
           contacts={view.rows}
+          matchingIds={view.matchingIds}
+          totalMatching={view.total}
           unreadCounts={unreadCounts}
           search={deferredSearch.trim()}
         />

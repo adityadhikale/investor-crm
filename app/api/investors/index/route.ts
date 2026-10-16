@@ -6,7 +6,7 @@ import { INVESTOR_TAGS } from "@/lib/tags";
 
 export const dynamic = "force-dynamic";
 
-const BASE_COLUMNS = "id, name, phone, email, tags, date_saved, notes";
+const BASE_COLUMNS = "id, name, phone, email, company, tags, date_saved, notes";
 const WITH_LAST_MESSAGE = `${BASE_COLUMNS}, last_message_at, last_message_text, last_message_direction`;
 
 type Row = Record<string, unknown>;
