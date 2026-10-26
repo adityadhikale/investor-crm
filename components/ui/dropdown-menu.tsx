@@ -17,7 +17,8 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
 function DropdownMenuContent({ className, ...props }: MenuPrimitive.Popup.Props) {
   return (
     <MenuPrimitive.Portal>
-      <MenuPrimitive.Positioner sideOffset={6} align="end">
+      {/* The z-index belongs on the positioner (the positioned wrapper), or sticky table headers draw over the menu. */}
+      <MenuPrimitive.Positioner sideOffset={6} align="end" className="z-[100]">
         <MenuPrimitive.Popup
           className={cn(
             "z-50 min-w-32 rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-lg outline-none",
@@ -66,4 +67,5 @@ export {
   DropdownMenuContent,
   DropdownMenuIconTrigger,
   DropdownMenuItem,
+  DropdownMenuTrigger,
 };

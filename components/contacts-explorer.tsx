@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 
 import type { ContactRow } from "@/components/contact-details-dialog";
 import { ContactsTable } from "@/components/contacts-table";
+import { ExportContactsMenu, type ExportOption } from "@/components/export-contacts-menu";
 import { PaginationControls } from "@/components/pagination-controls";
 import { TagFilter } from "@/components/tag-filter";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,19 @@ export function ContactsExplorer({
     return { rows: matches, total: matches.length, page: 1, matchingIds: undefined };
   }, [deferredSearch, tags, page, fullIndex, serverContacts, serverIndex, serverFilteredCount, initialPage, initialTags]);
 
+  // Export choices: the current search/filter results (when one is applied), or everything.
+  const isFiltered = Boolean(deferredSearch.trim()) || tags.length > 0;
+  const exportOptions: ExportOption[] = [
+    ...(isFiltered && view.matchingIds
+      ? [
+          { label: `Current results (${view.total.toLocaleString("en-IN")}) · Excel`, format: "xlsx" as const, ids: view.matchingIds, fileLabel: "filtered" as const },
+          { label: `Current results (${view.total.toLocaleString("en-IN")}) · CSV`, format: "csv" as const, ids: view.matchingIds, fileLabel: "filtered" as const },
+        ]
+      : []),
+    { label: "All contacts · Excel", format: "xlsx" as const },
+    { label: "All contacts · CSV", format: "csv" as const },
+  ];
+
   // Keep the address bar in step (so a refresh or shared link shows the same view) without a server round trip.
   useEffect(() => {
     const params = new URLSearchParams();
@@ -111,6 +125,7 @@ export function ContactsExplorer({
           )}
         </div>
         <TagFilter selectedTags={tags} onTagsChange={handleTagsChange} />
+        <ExportContactsMenu options={exportOptions} />
       </div>
 
       <div className="mt-3 flex min-h-0 flex-1 flex-col">

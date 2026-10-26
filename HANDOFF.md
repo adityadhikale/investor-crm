@@ -1,5 +1,5 @@
 # CREST CRM — HANDOFF / CONTEXT
-## Updated: 16 October 2026
+## Updated: 26 October 2026
 
 You are continuing development of an internal single-user Investor CRM for CREST Capital Management. This document is the source of truth for context — read it fully before suggesting any changes.
 
@@ -123,6 +123,8 @@ Earlier: contacts (CSV/Excel import), notes, investor pipeline, meeting notes + 
 36. **Company field** (`contacts.company`, migration `20261016000000_company_and_bulk_updates.sql` — **RUN IT BEFORE DEPLOYING**, the code selects the column): Add/Edit contact, contact page, Contacts table column, instant search, CSV import ("Company"), CSV export, server-side search filter.
 37. **Bulk tag change** (`components/bulk-tag-dialog.tsx`, `bulkChangeTags` in `app/contacts/bulk-actions.ts` → SQL `bulk_change_contact_tags`): select contacts (or "Select all N matching contacts" across pages) → Change tag → add / remove / replace-all.
 38. **Update from file** (`components/update-contacts-dialog.tsx`, `previewContactUpdate`/`applyContactUpdate` → SQL `bulk_update_contacts`): CSV/Excel matched by phone; **only mapped columns change, empty cells never erase data**; tag mode add or replace; preview first (counts, examples, not-found, invalid). Both functions are set-based (thousands of rows in a few calls) and run with the caller's permissions (owner-only RLS applies). No undo — take "Back up now" first for big changes.
+
+39. **Export on /contacts** (`components/export-contacts-menu.tsx`, `lib/export-contacts-client.ts`, `POST /api/export/contacts` in `app/api/export/contacts/route.ts`): an **Export** menu next to the tag filter — current search/filter results (all pages) or all contacts, as Excel (.xlsx via exceljs) or CSV — and **Export selected** in the selection bar. Columns: Name, Phone, Email, Company, Tags, Groups, Notes, Date Saved. CSV neutralises spreadsheet formulas; Excel keeps phones as text. The GET link on My Profile still downloads all contacts as CSV.
 
 ---
 

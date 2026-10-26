@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast-provider";
 import { UnreadBadge } from "@/components/unread-badge";
 import { BulkTagDialog } from "@/components/bulk-tag-dialog";
+import { ExportContactsMenu } from "@/components/export-contacts-menu";
 import {
   Dialog,
   DialogClose,
@@ -143,6 +144,14 @@ export function ContactsTable({
             )}
           </p>
           <div className="flex items-center gap-2">
+            <ExportContactsMenu
+              size="sm"
+              buttonLabel="Export selected"
+              options={[
+                { label: `Selected (${selectedIds.size.toLocaleString("en-IN")}) · Excel`, format: "xlsx", ids: [...selectedIds], fileLabel: "selected" },
+                { label: `Selected (${selectedIds.size.toLocaleString("en-IN")}) · CSV`, format: "csv", ids: [...selectedIds], fileLabel: "selected" },
+              ]}
+            />
             <Button type="button" variant="outline" size="sm" onClick={() => setTagDialogOpen(true)} disabled={deleting}>
               Change tag
             </Button>

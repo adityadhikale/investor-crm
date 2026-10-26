@@ -215,7 +215,7 @@ export function SettingsPanel({
             <div className="min-w-0">
               <p className="text-sm font-medium">Contacts (CSV)</p>
               <p className="text-xs text-muted-foreground">
-                Name, phone, email, tags, notes and date saved. Opens in Excel.
+                Name, phone, email, company, tags, groups, notes and date saved. Opens in Excel.
               </p>
             </div>
             <Button
