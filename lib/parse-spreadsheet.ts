@@ -11,7 +11,7 @@ export type ParsedSpreadsheet = {
   rows: string[][];
 };
 
-function cellValueToString(value: ExcelJS.CellValue): string {
+export function cellValueToString(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return "";
 
   if (value instanceof Date) {

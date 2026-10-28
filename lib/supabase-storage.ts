@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from "@/lib/supabase-service";
 
 export const WHATSAPP_MEDIA_BUCKET = "whatsapp-media";
+export const PORTFOLIO_BUCKET = "portfolio-updates";
 
 /**
  * The storage path inside the whatsapp-media bucket for a stored file's URL
@@ -60,4 +61,46 @@ export async function downloadStoredMedia(path: string): Promise<Buffer> {
     .download(path);
   if (error || !data) throw new Error(`Could not read the uploaded file: ${error?.message ?? "unknown error"}`);
   return Buffer.from(await data.arrayBuffer());
+}
+
+/** Same as createMediaUploadTarget, for the private portfolio-updates bucket. */
+export async function createPortfolioUploadTarget(
+  contactId: string,
+  filename: string,
+): Promise<{ path: string; token: string }> {
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${contactId}/${Date.now()}-${safeFilename}`;
+  const { data, error } = await createServiceRoleClient()
+    .storage.from(PORTFOLIO_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error || !data) throw new Error(`Could not prepare the upload: ${error?.message ?? "unknown error"}`);
+  return { path, token: data.token };
+}
+
+/** Saves bytes (e.g. pasted text) straight into the portfolio-updates bucket. */
+export async function uploadPortfolioFile(path: string, body: Buffer, contentType: string): Promise<void> {
+  const { error } = await createServiceRoleClient()
+    .storage.from(PORTFOLIO_BUCKET)
+    .upload(path, body, { contentType });
+  if (error) throw new Error(`Could not save the update: ${error.message}`);
+}
+
+export async function downloadPortfolioFile(path: string): Promise<Buffer> {
+  const { data, error } = await createServiceRoleClient()
+    .storage.from(PORTFOLIO_BUCKET)
+    .download(path);
+  if (error || !data) throw new Error(`Could not read the uploaded file: ${error?.message ?? "unknown error"}`);
+  return Buffer.from(await data.arrayBuffer());
+}
+
+/** A short-lived download link; the file name is used as the saved name. */
+export async function createSignedPortfolioUrl(path: string, downloadName?: string, seconds = 300): Promise<string | null> {
+  const { data, error } = await createServiceRoleClient()
+    .storage.from(PORTFOLIO_BUCKET)
+    .createSignedUrl(path, seconds, downloadName ? { download: downloadName } : undefined);
+  return error || !data ? null : data.signedUrl;
+}
+
+export async function removePortfolioFile(path: string): Promise<void> {
+  await createServiceRoleClient().storage.from(PORTFOLIO_BUCKET).remove([path]);
 }

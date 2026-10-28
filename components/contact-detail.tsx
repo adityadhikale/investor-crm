@@ -53,6 +53,8 @@ import {
 } from "@/components/ui/popover";
 import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
 import { markReadAndNotify } from "@/lib/unread-events";
+import { PortfolioUpdatesSection } from "@/components/portfolio-updates-section";
+import type { PortfolioUpdate } from "@/lib/portfolio-types";
 import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
 import { MESSAGES_CHANGED_EVENT } from "@/lib/unread-events";
 import {
@@ -79,6 +81,8 @@ type ContactDetailProps = {
   initialWhatsAppSummary?: string | null;
   initialWhatsAppSummaryGeneratedAt?: string | null;
   initialUnreadCount?: number;
+  initialPortfolioUpdates?: PortfolioUpdate[];
+  portfolioUpdatesError?: string | null;
 };
 
 function toISODateString(date: Date) {
@@ -175,6 +179,8 @@ export function ContactDetail({
   initialWhatsAppSummary = null,
   initialWhatsAppSummaryGeneratedAt = null,
   initialUnreadCount = 0,
+  initialPortfolioUpdates = [],
+  portfolioUpdatesError = null,
 }: ContactDetailProps) {
   const isInvestor = variant === "investor";
   const noun = isInvestor ? "investor" : "contact";
@@ -631,244 +637,252 @@ export function ContactDetail({
         </ContactDetailsDialog>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <section className="rounded-lg border bg-background p-5">
-          <h2 className="text-base font-semibold">{isInvestor ? "Investor" : "Contact"}</h2>
-          <div className="mt-4 space-y-4">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</p>
-              <p className="mt-1 font-medium">{contact.name}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
-              {contact.company ? (
-                <p className="mt-1">{contact.company}</p>
-              ) : (
-                <p className="mt-1 text-muted-foreground">No company added</p>
-              )}
-            </div>
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
-                <p className="mt-1 break-words">{contact.phone}</p>
+      <div className="mt-6 mb-8 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className="space-y-4">
+          <section className="rounded-lg border bg-background p-5">
+            <h2 className="text-base font-semibold">{isInvestor ? "Investor" : "Contact"}</h2>
+            <div className="mt-4 space-y-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Name</p>
+                <p className="mt-1 font-medium">{contact.name}</p>
               </div>
-              <Button type="button" variant="outline" onClick={copyPhone} className="shrink-0">
-                <Copy className="size-4" />
-                Copy
-              </Button>
-            </div>
-            {contact.email ? (
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Company</p>
+                {contact.company ? (
+                  <p className="mt-1">{contact.company}</p>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">No company added</p>
+                )}
+              </div>
               <div className="flex items-end justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
-                  <p className="mt-1 break-words">{contact.email}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
+                  <p className="mt-1 break-words">{contact.phone}</p>
                 </div>
-                <Button type="button" variant="outline" onClick={copyEmail} className="shrink-0">
+                <Button type="button" variant="outline" onClick={copyPhone} className="shrink-0">
                   <Copy className="size-4" />
                   Copy
                 </Button>
               </div>
-            ) : (
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
-                <p className="mt-1 text-muted-foreground">No email added</p>
-              </div>
-            )}
-            {isInvestor ? (
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</p>
-                <span className="mt-1 inline-flex rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                  Investor
-                </span>
-              </div>
-            ) : (
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</p>
-              {contact.tags?.length ? (
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {contact.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+              {contact.email ? (
+                <div className="flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
+                    <p className="mt-1 break-words">{contact.email}</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={copyEmail} className="shrink-0">
+                    <Copy className="size-4" />
+                    Copy
+                  </Button>
                 </div>
               ) : (
-                <p className="mt-1 text-muted-foreground">No tags assigned</p>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
+                  <p className="mt-1 text-muted-foreground">No email added</p>
+                </div>
               )}
-            </div>
-            )}
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
-              {contact.notes?.trim() ? (
-                <p className="mt-1 whitespace-pre-wrap">{contact.notes}</p>
+              {isInvestor ? (
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</p>
+                  <span className="mt-1 inline-flex rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                    Investor
+                  </span>
+                </div>
               ) : (
-                <p className="mt-1 text-muted-foreground">
-                  No notes yet — e.g. company name, designation, sector
-                </p>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</p>
+                {contact.tags?.length ? (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {contact.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">No tags assigned</p>
+                )}
+              </div>
               )}
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-lg border bg-background p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold">Meeting Notes</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Record and review {noun} conversations.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={voiceNoteInputRef}
-                type="file"
-                accept="audio/*"
-                className="hidden"
-                onChange={handleVoiceNoteFileChange}
-                disabled={transcribingVoiceNote}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => voiceNoteInputRef.current?.click()}
-                disabled={transcribingVoiceNote}
-              >
-                {transcribingVoiceNote ? (
-                  <Loader2 className="size-4 animate-spin" />
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Notes</p>
+                {contact.notes?.trim() ? (
+                  <p className="mt-1 whitespace-pre-wrap">{contact.notes}</p>
                 ) : (
-                  <Mic className="size-4" />
+                  <p className="mt-1 text-muted-foreground">
+                    No notes yet — e.g. company name, designation, sector
+                  </p>
                 )}
-                {transcribingVoiceNote ? "Transcribing..." : "Upload Voice Note"}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setAddingMeetingNote(true)}>
-                Add Meeting Note
-              </Button>
+              </div>
             </div>
-          </div>
-          <div className="mt-5">
-            {notesError ? (
-              <p className="text-sm text-destructive">{notesError}</p>
-            ) : loadingNotes ? (
-              <p className="text-sm text-muted-foreground">Loading meeting notes...</p>
-            ) : (
-              <NoteHistory
-                notes={notes}
-                onEdit={startEditMeetingNote}
-                onDelete={setDeletingMeetingNote}
-                noun={noun}
-              />
-            )}
-          </div>
-        </section>
+          </section>
 
-        <section className="rounded-lg border bg-background p-5 lg:mb-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold">Follow-ups</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Keep track of future {noun} actions.</p>
+          <section className="rounded-lg border bg-background p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold">Follow-ups</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Keep track of future {noun} actions.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSuggestFollowUp}
+                  disabled={suggestingFollowUp}
+                >
+                  {suggestingFollowUp ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                  Suggest with AI
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setAddingFollowUp(true)}>
+                  Add Follow-up
+                </Button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleSuggestFollowUp}
-                disabled={suggestingFollowUp}
-              >
-                {suggestingFollowUp ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                Suggest with AI
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setAddingFollowUp(true)}>
-                Add Follow-up
-              </Button>
-            </div>
-          </div>
-          <div className="mt-5">
-            {followUpsError ? (
-              <p className="text-sm text-destructive">{followUpsError}</p>
-            ) : loadingFollowUps ? (
-              <p className="text-sm text-muted-foreground">Loading follow-ups...</p>
-            ) : followUps.length ? (
-              <div className="space-y-4">
-                {followUps.map((followUp) => (
-                  <div
-                    key={followUp.id}
-                    className="flex flex-col gap-2 border-b pb-4 last:border-b-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium">{formatFollowUpDate(followUp.due_date)}</p>
-                        {followUp.is_done && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                            <Check className="size-3 text-green-600" />
-                            Completed
-                          </span>
-                        )}
+            <div className="mt-5">
+              {followUpsError ? (
+                <p className="text-sm text-destructive">{followUpsError}</p>
+              ) : loadingFollowUps ? (
+                <p className="text-sm text-muted-foreground">Loading follow-ups...</p>
+              ) : followUps.length ? (
+                <div className="space-y-4">
+                  {followUps.map((followUp) => (
+                    <div
+                      key={followUp.id}
+                      className="flex flex-col gap-2 border-b pb-4 last:border-b-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
+                    >
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">{formatFollowUpDate(followUp.due_date)}</p>
+                          {followUp.is_done && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                              <Check className="size-3 text-green-600" />
+                              Completed
+                            </span>
+                          )}
+                        </div>
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{followUp.message}</p>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">{followUp.message}</p>
-                    </div>
-                    <div className="shrink-0">
-                      <DropdownMenu>
-                        <DropdownMenuIconTrigger label="Follow-up actions" />
-                        <DropdownMenuContent>
-                          {!followUp.is_done ? (
-                            <>
-                              <DropdownMenuItem onClick={() => startEditFollowUp(followUp)}>
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => setConfirmingCompleteFollowUp(followUp)}>
-                                Mark as Done
-                              </DropdownMenuItem>
+                      <div className="shrink-0">
+                        <DropdownMenu>
+                          <DropdownMenuIconTrigger label="Follow-up actions" />
+                          <DropdownMenuContent>
+                            {!followUp.is_done ? (
+                              <>
+                                <DropdownMenuItem onClick={() => startEditFollowUp(followUp)}>
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setConfirmingCompleteFollowUp(followUp)}>
+                                  Mark as Done
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => setDeletingFollowUp(followUp)}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
                               <DropdownMenuItem
-                                onClick={() => setDeletingFollowUp(followUp)}
+                                onClick={() => setDeletingCompletedFollowUp(followUp)}
                                 className="text-destructive focus:text-destructive"
                               >
                                 Delete
                               </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <DropdownMenuItem
-                              onClick={() => setDeletingCompletedFollowUp(followUp)}
-                              className="text-destructive focus:text-destructive"
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No follow-ups scheduled yet.</p>
-            )}
-          </div>
-        </section>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No follow-ups scheduled yet.</p>
+              )}
+            </div>
+          </section>
+        </div>
+        <div className="space-y-4">
+      <PortfolioUpdatesSection
+        contactId={contact.id}
+        initialUpdates={initialPortfolioUpdates}
+        error={portfolioUpdatesError}
+      />
 
-        <WhatsAppHistory
-          messages={initialWhatsAppMessages}
-          error={whatsAppMessagesError}
-          summary={summary}
-          summaryGeneratedAt={summaryGeneratedAt}
-          onRefreshSummary={handleRefreshSummary}
-          isGeneratingSummary={isGeneratingSummary}
-          summaryError={summaryError}
-          onSendReply={handleSendReply}
-          isSendingReply={isSendingReply}
-          onSendMedia={handleSendMedia}
-          isSendingMedia={isSendingMedia}
-          onOpened={() => void markReadAndNotify(contact.id)}
-          unreadCount={initialUnreadCount}
-          onSendTemplate={handleSendTemplate}
-          onResendMessage={handleResendMessage}
-          contactName={contact.name}
-          className="mb-8"
-        />
+          <section className="rounded-lg border bg-background p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold">Meeting Notes</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Record and review {noun} conversations.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={voiceNoteInputRef}
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={handleVoiceNoteFileChange}
+                  disabled={transcribingVoiceNote}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => voiceNoteInputRef.current?.click()}
+                  disabled={transcribingVoiceNote}
+                >
+                  {transcribingVoiceNote ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Mic className="size-4" />
+                  )}
+                  {transcribingVoiceNote ? "Transcribing..." : "Upload Voice Note"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setAddingMeetingNote(true)}>
+                  Add Meeting Note
+                </Button>
+              </div>
+            </div>
+            <div className="mt-5">
+              {notesError ? (
+                <p className="text-sm text-destructive">{notesError}</p>
+              ) : loadingNotes ? (
+                <p className="text-sm text-muted-foreground">Loading meeting notes...</p>
+              ) : (
+                <NoteHistory
+                  notes={notes}
+                  onEdit={startEditMeetingNote}
+                  onDelete={setDeletingMeetingNote}
+                  noun={noun}
+                />
+              )}
+            </div>
+          </section>
+
+          <WhatsAppHistory
+            messages={initialWhatsAppMessages}
+            error={whatsAppMessagesError}
+            summary={summary}
+            summaryGeneratedAt={summaryGeneratedAt}
+            onRefreshSummary={handleRefreshSummary}
+            isGeneratingSummary={isGeneratingSummary}
+            summaryError={summaryError}
+            onSendReply={handleSendReply}
+            isSendingReply={isSendingReply}
+            onSendMedia={handleSendMedia}
+            isSendingMedia={isSendingMedia}
+            onOpened={() => void markReadAndNotify(contact.id)}
+            unreadCount={initialUnreadCount}
+            onSendTemplate={handleSendTemplate}
+            onResendMessage={handleResendMessage}
+            contactName={contact.name}
+          />
+        </div>
       </div>
 
       {/* Add Meeting Note Dialog */}

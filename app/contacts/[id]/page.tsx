@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { PORTFOLIO_UPDATE_COLUMNS, type PortfolioUpdate } from "@/lib/portfolio-types";
 import { requireAuthFast } from "@/lib/auth";
 import { getUnreadCountsByContact } from "@/lib/unread";
 import { ContactDetail } from "@/components/contact-detail";
@@ -55,6 +56,13 @@ export default async function ContactDetailPage({
     .is("deleted_at", null)
     .order("sent_at", { ascending: true });
 
+  const { data: portfolioUpdates, error: portfolioUpdatesError } = await supabase
+    .from("portfolio_updates")
+    .select(PORTFOLIO_UPDATE_COLUMNS)
+    .eq("contact_id", id)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+
   const unreadCounts = await getUnreadCountsByContact(supabase);
 
   return (
@@ -68,6 +76,14 @@ export default async function ContactDetailPage({
       whatsAppMessagesError={whatsAppMessagesError ? "WhatsApp messages could not be loaded." : null}
       initialWhatsAppSummary={contact.whatsapp_summary ?? null}
       initialWhatsAppSummaryGeneratedAt={contact.whatsapp_summary_generated_at ?? null}
+      initialPortfolioUpdates={portfolioUpdatesError ? [] : ((portfolioUpdates ?? []) as PortfolioUpdate[])}
+      portfolioUpdatesError={
+        portfolioUpdatesError
+          ? portfolioUpdatesError.code === "42P01" || portfolioUpdatesError.code === "PGRST205"
+            ? "Portfolio updates aren't set up yet. Run the latest Supabase migration (portfolio_updates) first."
+            : "Portfolio updates could not be loaded."
+          : null
+      }
       initialUnreadCount={unreadCounts[contact.id] ?? 0}
     />
   );

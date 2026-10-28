@@ -22,7 +22,7 @@ interface GeminiCandidate {
   finishReason?: string;
 }
 
-interface GeminiApiResponse {
+export interface GeminiApiResponse {
   candidates?: GeminiCandidate[];
   error?: {
     code?: number;
@@ -56,25 +56,39 @@ function geminiUrl(model: string) {
  * POSTs to a Gemini generateContent endpoint, retrying with backoff on
  * transient errors (model overloaded / rate limited), then falling back to
  * a lighter model if the preferred one stays unavailable.
+ *
+ * With timeoutMs, the whole call (all retries and fallbacks) gives up after
+ * that long with a clear error instead of hanging.
  */
-async function callGeminiGenerateContent(
+export async function callGeminiGenerateContent(
   apiKey: string,
-  body: unknown
+  body: unknown,
+  options: { timeoutMs?: number } = {}
 ): Promise<GeminiApiResponse> {
   let lastErrorMessage = "Gemini API request failed.";
+  const signal = options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined;
 
   for (const model of MODEL_FALLBACK_CHAIN) {
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_MODEL; attempt++) {
-      const response = await fetch(geminiUrl(model), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify(body),
-      });
-
-      const data: GeminiApiResponse = await response.json();
+      let response: Response;
+      let data: GeminiApiResponse;
+      try {
+        response = await fetch(geminiUrl(model), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+        data = await response.json();
+      } catch (err: unknown) {
+        if (signal?.aborted) {
+          throw new Error("The AI took too long to respond. Please try again.");
+        }
+        throw err;
+      }
 
       if (response.ok && !data.error) {
         return data;
