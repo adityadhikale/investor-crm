@@ -190,7 +190,12 @@ export function ImportContactsDialog() {
 
       if (normalized === "name" || normalized === "fullname" || normalized === "contactname") {
         matched = "name";
-      } else if (normalized === "phone" || normalized === "phonenumber" || normalized === "mobile") {
+      } else if (
+        [
+          "phone", "phonenumber", "phoneno", "mobile", "mobilenumber", "mobileno", "mobilephone",
+          "contactnumber", "contactno", "cell", "cellphone", "whatsapp", "whatsappnumber",
+        ].includes(normalized)
+      ) {
         matched = "phone";
       } else if (normalized === "email" || normalized === "emailaddress") {
         matched = "email";
@@ -524,7 +529,8 @@ export function ImportContactsDialog() {
                         <span className="font-medium">Invalid ({invalidRows})</span> toggle above to review them, or download them to fix and re-import.
                       </p>
                     )}
-                    <div className="overflow-x-auto rounded-lg border">
+                    {/* A fixed-height box that scrolls both ways, so the horizontal scrollbar is always in view and the header row stays put. */}
+                    <div className="max-h-[calc(100vh-24rem)] min-h-64 overflow-auto rounded-lg border">
                       <table className="min-w-max border-collapse text-sm">
                         <thead className="sticky top-0 z-10 bg-muted/95 text-left"><tr className="border-b">
                           <th className="min-w-16 border-r px-4 py-3 align-top text-xs font-medium text-muted-foreground">Row #</th>
