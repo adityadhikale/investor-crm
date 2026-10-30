@@ -54,6 +54,8 @@ import {
 import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } from "lucide-react";
 import { markReadAndNotify } from "@/lib/unread-events";
 import { PortfolioUpdatesSection } from "@/components/portfolio-updates-section";
+import { ProspectScoreSection } from "@/components/prospect-score-section";
+import { EMPTY_PROSPECT_SCORE, type ProspectScore } from "@/lib/prospect-score-types";
 import type { PortfolioUpdate } from "@/lib/portfolio-types";
 import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
 import { MESSAGES_CHANGED_EVENT } from "@/lib/unread-events";
@@ -83,6 +85,8 @@ type ContactDetailProps = {
   initialUnreadCount?: number;
   initialPortfolioUpdates?: PortfolioUpdate[];
   portfolioUpdatesError?: string | null;
+  initialProspectScore?: ProspectScore;
+  prospectScoreError?: string | null;
 };
 
 function toISODateString(date: Date) {
@@ -181,6 +185,8 @@ export function ContactDetail({
   initialUnreadCount = 0,
   initialPortfolioUpdates = [],
   portfolioUpdatesError = null,
+  initialProspectScore = EMPTY_PROSPECT_SCORE,
+  prospectScoreError = null,
 }: ContactDetailProps) {
   const isInvestor = variant === "investor";
   const noun = isInvestor ? "investor" : "contact";
@@ -719,6 +725,8 @@ export function ContactDetail({
               </div>
             </div>
           </section>
+
+          <ProspectScoreSection contactId={contact.id} initialScore={initialProspectScore} error={prospectScoreError} />
 
           <section className="rounded-lg border bg-background p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">

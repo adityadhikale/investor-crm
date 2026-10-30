@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PORTFOLIO_UPDATE_COLUMNS, type PortfolioUpdate } from "@/lib/portfolio-types";
+import { PROSPECT_SCORE_COLUMNS, type ProspectScore } from "@/lib/prospect-score-types";
 import { requireAuthFast } from "@/lib/auth";
 import { getUnreadCountsByContact } from "@/lib/unread";
 import { InvestorDetail, type WhatsAppMessage } from "@/components/investor-detail";
@@ -63,6 +64,13 @@ export default async function InvestorDetailPage({
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
+  // Read separately so the page still opens before the prospect score migration has been run.
+  const { data: prospectScore, error: prospectScoreError } = await supabase
+    .from("contacts")
+    .select(PROSPECT_SCORE_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+
   const unreadCounts = await getUnreadCountsByContact(supabase);
 
   return (
@@ -82,6 +90,14 @@ export default async function InvestorDetailPage({
           ? portfolioUpdatesError.code === "42P01" || portfolioUpdatesError.code === "PGRST205"
             ? "Portfolio updates aren't set up yet. Run the latest Supabase migration (portfolio_updates) first."
             : "Portfolio updates could not be loaded."
+          : null
+      }
+      initialProspectScore={prospectScoreError || !prospectScore ? undefined : (prospectScore as ProspectScore)}
+      prospectScoreError={
+        prospectScoreError
+          ? prospectScoreError.code === "42703"
+            ? "Prospect score isn't set up yet. Run the latest Supabase migration (prospect score) first."
+            : "The prospect score could not be loaded."
           : null
       }
       initialUnreadCount={unreadCounts[contact.id] ?? 0}
