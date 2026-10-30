@@ -55,6 +55,7 @@ import { CalendarIcon, Copy, ArrowLeft, Check, Loader2, Mic, Pencil, Sparkles } 
 import { markReadAndNotify } from "@/lib/unread-events";
 import { PortfolioUpdatesSection } from "@/components/portfolio-updates-section";
 import { ProspectScoreSection } from "@/components/prospect-score-section";
+import { MessageDraftSection } from "@/components/message-draft-section";
 import { EMPTY_PROSPECT_SCORE, type ProspectScore } from "@/lib/prospect-score-types";
 import type { PortfolioUpdate } from "@/lib/portfolio-types";
 import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
@@ -727,6 +728,8 @@ export function ContactDetail({
           </section>
 
           <ProspectScoreSection contactId={contact.id} initialScore={initialProspectScore} error={prospectScoreError} />
+
+          <MessageDraftSection contactId={contact.id} contactName={contact.name} />
 
           <section className="rounded-lg border bg-background p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
