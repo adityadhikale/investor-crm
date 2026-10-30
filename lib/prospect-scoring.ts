@@ -1,4 +1,5 @@
 import { callGeminiGenerateContent } from "@/lib/gemini";
+import { toIndianGrouping } from "@/lib/indian-numbers";
 import type { PortfolioAnalysis } from "@/lib/portfolio-types";
 
 // Gives up before the host would cut the request off, so the card shows a clear error.
@@ -103,7 +104,7 @@ LATEST PORTFOLIO UPDATE
 ${formatPortfolio(input.portfolio)}
 
 Respond with ONLY one JSON object: {"score": integer 1-5, "reason": string}
-The reason is 2-3 short sentences naming the specific facts that drove the score (and what is missing, if relevant). No markdown.`;
+The reason is 2-3 short sentences naming the specific facts that drove the score (and what is missing, if relevant). No markdown. Write rupee amounts in the Indian number system (lakh and crore, e.g. ₹57,56,422 or ₹57.56 lakh), never millions or billions.`;
 
   const data = await callGeminiGenerateContent(
     apiKey,
@@ -128,5 +129,5 @@ The reason is 2-3 short sentences naming the specific facts that drove the score
   if (!Number.isInteger(score) || score < 1 || score > 5 || !reason) {
     throw new Error("Gemini returned an unexpected response format.");
   }
-  return { score, reason };
+  return { score, reason: toIndianGrouping(reason) };
 }

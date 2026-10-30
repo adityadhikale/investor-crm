@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/toast-provider";
+import { toIndianGrouping } from "@/lib/indian-numbers";
 import { clearManualScore, setManualScore, suggestProspectScore } from "@/app/contacts/score-actions";
 import {
   MAX_SCORE_REASON_CHARS,
@@ -138,12 +139,12 @@ export function ProspectScoreSection({
                 </span>
               </div>
               <p className="text-sm whitespace-pre-wrap">
-                {reason || <span className="text-muted-foreground">No reason given.</span>}
+                {reason ? toIndianGrouping(reason) : <span className="text-muted-foreground">No reason given.</span>}
               </p>
               {scoredAt && <p className="text-xs text-muted-foreground">Scored {formatDate(scoredAt)}</p>}
               {overridden && score.ai_score !== null && (
                 <p className="border-t pt-2 text-xs text-muted-foreground">
-                  AI suggested {score.ai_score}/5{score.ai_score_reason ? `: ${score.ai_score_reason}` : ""}
+                  AI suggested {score.ai_score}/5{score.ai_score_reason ? `: ${toIndianGrouping(score.ai_score_reason)}` : ""}
                 </p>
               )}
             </div>

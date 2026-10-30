@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/toast-provider";
+import { toIndianGrouping } from "@/lib/indian-numbers";
 import { createClient as createBrowserSupabase } from "@/src/lib/supabase/client";
 import {
   analyzePortfolioUpdateById,
@@ -74,7 +75,7 @@ function HoldingsTable({ title, holdings }: { title: string; holdings: Portfolio
                 <span className="block truncate font-medium">{holding.name}</span>
                 {(holding.ticker || holding.detail) && (
                   <span className="block truncate text-xs text-muted-foreground">
-                    {[holding.ticker, holding.detail].filter(Boolean).join(" · ")}
+                    {toIndianGrouping([holding.ticker, holding.detail].filter(Boolean).join(" · "))}
                   </span>
                 )}
               </span>
@@ -121,27 +122,31 @@ function AnalysisPanel({ update }: { update: PortfolioUpdate }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-md border p-3">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">AUM</p>
-          <p className="mt-1 text-lg font-semibold">{analysis.aum.display ?? "—"}</p>
+          <p className="mt-1 text-lg font-semibold">{analysis.aum.display ? toIndianGrouping(analysis.aum.display) : "—"}</p>
           <p className="text-xs text-muted-foreground">{analysis.aum.as_of ? `As of ${analysis.aum.as_of}` : ""}</p>
           <Delta value={changes?.aum_delta_pct} suffix="%" />
         </div>
         <div className="rounded-md border p-3">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Returns</p>
           <p className="mt-1 text-lg font-semibold">
-            {analysis.returns.display ?? (analysis.returns.pct !== null ? formatPct(analysis.returns.pct) : "—")}
+            {analysis.returns.display
+              ? toIndianGrouping(analysis.returns.display)
+              : analysis.returns.pct !== null
+                ? formatPct(analysis.returns.pct)
+                : "—"}
           </p>
           <p className="text-xs text-muted-foreground">{analysis.returns.period ?? ""}</p>
           <Delta value={changes?.returns_delta_pct_points} suffix=" pts" />
         </div>
       </div>
-      {analysis.summary && <p className="text-sm">{analysis.summary}</p>}
-      {changes?.notes && <p className="text-sm text-muted-foreground">Change: {changes.notes}</p>}
+      {analysis.summary && <p className="text-sm">{toIndianGrouping(analysis.summary)}</p>}
+      {changes?.notes && <p className="text-sm text-muted-foreground">Change: {toIndianGrouping(changes.notes)}</p>}
       <div className="grid gap-4 md:grid-cols-2">
         <HoldingsTable title="Top 5 gainers" holdings={analysis.top_gainers} />
         <HoldingsTable title="Bottom 5 losers" holdings={analysis.top_losers} />
       </div>
       {analysis.confidence_notes && (
-        <p className="text-xs text-muted-foreground">AI note: {analysis.confidence_notes}</p>
+        <p className="text-xs text-muted-foreground">AI note: {toIndianGrouping(analysis.confidence_notes)}</p>
       )}
     </div>
   );

@@ -152,7 +152,7 @@ Respond with ONLY one JSON object in this shape:
   "changes_vs_previous": ${args.previousAnalysis ? `{"aum_delta_pct": number|null, "returns_delta_pct_points": number|null, "notes": string|null (one short sentence on what changed versus the previous update)}` : "null"},
   "confidence_notes": string|null (anything missing, ambiguous or assumed, e.g. "returns are for a different period than the previous update")
 }
-Gainers and losers must come from the holdings/stocks listed in the document, ranked by their stated return. If the document has no holdings-level returns, return empty arrays. If the document does not print a ticker, give the NSE trading symbol only when you are certain of it for that exact listed company; otherwise null. Never guess a ticker for ETFs or funds you are unsure of.${previous}`;
+Gainers and losers must come from the holdings/stocks listed in the document, ranked by their stated return. If the document has no holdings-level returns, return empty arrays. If the document does not print a ticker, give the NSE trading symbol only when you are certain of it for that exact listed company; otherwise null. Never guess a ticker for ETFs or funds you are unsure of. When you write rupee amounts in text fields ("display", "detail", "summary", "notes"), use the Indian number system (lakh and crore grouping, e.g. ₹57,56,422 or ₹57.56 lakh), never millions or billions; keep the "value" number field a plain number.${previous}`;
 
   const parts: Array<Record<string, unknown>> = [{ text: instructions }];
   if (kind === "pdf") {
