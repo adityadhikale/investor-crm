@@ -9,6 +9,13 @@ import {
   type ImportContactRow,
   type ImportDuplicateRow,
 } from "@/app/contacts/actions";
+import {
+  applyContactUpdate,
+  previewContactUpdate,
+  type ContactUpdatePreview,
+  type ContactUpdateRow,
+  type TagUpdateMode,
+} from "@/app/contacts/bulk-actions";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -30,7 +37,7 @@ import {
 } from "@/components/ui/sheet";
 import { Download, FileText, Loader2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { matchTag } from "@/lib/tag-match";
+import { parseTagCell } from "@/lib/tag-match";
 
 type ContactField = keyof ImportContactRow;
 type Mapping = Record<number, ContactField | "skip">;
@@ -104,7 +111,8 @@ function validateRow(row: ImportContactRow) {
   if (!/^\d{7,15}$/.test(row.phone)) return "Phone must contain 7-15 digits.";
   if (row.email && !EMAIL_REGEX.test(row.email)) return "Please enter a valid email address.";
   if (row.dateSaved && !isValidDate(row.dateSaved)) return "Date Saved must use YYYY-MM-DD.";
-  if (row.tag && !matchTag(row.tag)) return `Unknown tag "${row.tag}". Use one of the CRM's tags.`;
+  const unknownTag = row.tag ? parseTagCell(row.tag).unknown : undefined;
+  if (unknownTag) return `Unknown tag "${unknownTag}". Use one of the CRM's tags.`;
   return null;
 }
 
@@ -141,9 +149,15 @@ export function ImportContactsDialog() {
   const [importSummary, setImportSummary] = useState<{
     imported: number;
     duplicates: number;
+    existing: number;
     rejected: number;
     duplicateRows: ImportDuplicateRow[];
   } | null>(null);
+  // Updating the contacts that were already in the CRM, from the same file.
+  const [updateTagMode, setUpdateTagMode] = useState<TagUpdateMode>("replace");
+  const [updatePreview, setUpdatePreview] = useState<ContactUpdatePreview | null>(null);
+  const [updateBusy, setUpdateBusy] = useState<"preview" | "apply" | null>(null);
+  const [updatedCount, setUpdatedCount] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mappedRows = csv ? getMappedRows(csv, mapping) : [];
@@ -177,6 +191,10 @@ export function ImportContactsDialog() {
     setWorkspaceOpen(false);
     setRowFilter("all");
     setImportSummary(null);
+    setUpdateTagMode("replace");
+    setUpdatePreview(null);
+    setUpdateBusy(null);
+    setUpdatedCount(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -355,6 +373,42 @@ export function ImportContactsDialog() {
     router.refresh();
   }
 
+  /** The file's rows in the shape "Update from file" uses. Names are left as they are in the CRM. */
+  function buildUpdateRows(): ContactUpdateRow[] {
+    return validRows.map((row) => ({
+      phone: row.phone,
+      email: row.email ?? undefined,
+      company: row.company,
+      notes: row.notes,
+      dateSaved: row.dateSaved,
+      tag: row.tag,
+    }));
+  }
+
+  async function handlePreviewUpdate() {
+    setUpdateBusy("preview");
+    const response = await previewContactUpdate(buildUpdateRows(), updateTagMode);
+    setUpdateBusy(null);
+    if ("error" in response) {
+      toast(response.error, "error");
+      return;
+    }
+    setUpdatePreview(response.preview);
+  }
+
+  async function handleApplyUpdate() {
+    setUpdateBusy("apply");
+    const response = await applyContactUpdate(buildUpdateRows(), updateTagMode);
+    setUpdateBusy(null);
+    if ("error" in response) {
+      toast(response.error, "error");
+      return;
+    }
+    setUpdatedCount(response.updated);
+    toast(`${response.updated} existing contact${response.updated === 1 ? "" : "s"} updated`);
+    router.refresh();
+  }
+
   function closeWorkspace() {
     resetState();
     setOpen(false);
@@ -509,6 +563,116 @@ export function ImportContactsDialog() {
                     <>{" "}{importSummary.rejected} row{importSummary.rejected === 1 ? "" : "s"} were invalid and not submitted.</>
                   )}
                 </p>
+
+                {importSummary.existing > 0 && (
+                  <section className="space-y-3 rounded-lg border p-4 text-sm">
+                    <div>
+                      <p className="font-medium">
+                        {importSummary.existing} row{importSummary.existing === 1 ? " is a contact" : "s are contacts"} already
+                        in the CRM
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        Import only adds new contacts, so their tags and details were not changed. You can update them
+                        from this file: tags, company, email, notes and date saved. Names stay as they are, and empty
+                        cells never erase anything.
+                      </p>
+                    </div>
+
+                    {updatedCount !== null ? (
+                      <p className="font-medium text-emerald-700">
+                        {updatedCount} existing contact{updatedCount === 1 ? "" : "s"} updated.
+                      </p>
+                    ) : (
+                      <>
+                        <fieldset className="space-y-1.5" disabled={updateBusy !== null}>
+                          <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tags</legend>
+                          <label className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="import-update-tag-mode"
+                              checked={updateTagMode === "replace"}
+                              onChange={() => {
+                                setUpdateTagMode("replace");
+                                setUpdatePreview(null);
+                              }}
+                              className="mt-1 accent-primary"
+                            />
+                            <span>
+                              <span className="font-medium">Replace</span> their tags with the file&apos;s tags (investor
+                              and shareholder tags are kept)
+                            </span>
+                          </label>
+                          <label className="flex items-start gap-2">
+                            <input
+                              type="radio"
+                              name="import-update-tag-mode"
+                              checked={updateTagMode === "add"}
+                              onChange={() => {
+                                setUpdateTagMode("add");
+                                setUpdatePreview(null);
+                              }}
+                              className="mt-1 accent-primary"
+                            />
+                            <span>
+                              <span className="font-medium">Add</span> the file&apos;s tags to the tags they already have
+                            </span>
+                          </label>
+                        </fieldset>
+
+                        {updatePreview && (
+                          <div className="space-y-2 rounded-md bg-muted/40 px-3 py-2">
+                            <p>
+                              <span className="font-medium">{updatePreview.willChange}</span> contact
+                              {updatePreview.willChange === 1 ? "" : "s"} will change,{" "}
+                              {updatePreview.unchanged} already match the file.
+                            </p>
+                            {Object.keys(updatePreview.fieldCounts).length > 0 && (
+                              <p className="text-muted-foreground">
+                                {Object.entries(updatePreview.fieldCounts)
+                                  .map(([field, count]) => `${field}: ${count}`)
+                                  .join(" · ")}
+                              </p>
+                            )}
+                            {updatePreview.duplicatesInFile > 0 && (
+                              <p className="text-muted-foreground">
+                                {updatePreview.duplicatesInFile} rows repeat a phone number in the file; their tags are
+                                combined.
+                              </p>
+                            )}
+                            {updatePreview.samples.length > 0 && (
+                              <ul className="space-y-1 text-xs text-muted-foreground">
+                                {updatePreview.samples.slice(0, 5).map((sample) => (
+                                  <li key={sample.phone}>
+                                    <span className="font-medium text-foreground">{sample.name}</span>:{" "}
+                                    {sample.changes.join("; ")}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={updateBusy !== null}
+                            onClick={() => void handlePreviewUpdate()}
+                          >
+                            {updateBusy === "preview" && <Loader2 className="size-4 animate-spin" />}
+                            {updatePreview ? "Check again" : "Preview update"}
+                          </Button>
+                          {updatePreview && updatePreview.willChange > 0 && (
+                            <Button type="button" disabled={updateBusy !== null} onClick={() => void handleApplyUpdate()}>
+                              {updateBusy === "apply" && <Loader2 className="size-4 animate-spin" />}
+                              Update {updatePreview.willChange} contact{updatePreview.willChange === 1 ? "" : "s"}
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </section>
+                )}
               </div>
             </main>
           ) : (

@@ -359,7 +359,8 @@ export function UpdateContactsDialog() {
                         className="mt-1 accent-primary"
                       />
                       <span>
-                        <span className="font-medium">Replace</span> all of the contact&apos;s tags with it
+                        <span className="font-medium">Replace</span> the contact&apos;s tags with it (investor and
+                        shareholder tags are kept)
                       </span>
                     </label>
                     <p className="mt-2 text-xs text-muted-foreground">
@@ -468,7 +469,7 @@ export function UpdateContactsDialog() {
                   <li>{preview.unchanged} already match the file (no change)</li>
                   <li>{preview.notFound} phone numbers aren&apos;t in the CRM (skipped)</li>
                   <li>{preview.invalid} rows are invalid (skipped)</li>
-                  {preview.duplicatesInFile > 0 && <li>{preview.duplicatesInFile} phone numbers appear more than once in the file</li>}
+                  {preview.duplicatesInFile > 0 && <li>{preview.duplicatesInFile} rows repeat a phone number already in the file (their tags are combined)</li>}
                 </ul>
                 {Object.keys(preview.fieldCounts).length > 0 && (
                   <p className="text-muted-foreground">

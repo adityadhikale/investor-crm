@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { requireActionAuth } from "@/lib/auth";
 import { fetchAllPages } from "@/lib/supabase-pagination";
-import { TAG_OPTIONS } from "@/lib/tags";
-import { matchTag, splitTagCell } from "@/lib/tag-match";
+import { PROTECTED_TAGS, TAG_OPTIONS } from "@/lib/tags";
+import { parseTagCell } from "@/lib/tag-match";
 import { normalizeToLocalPhone } from "@/lib/whatsapp";
 
 const CHUNK = 500;
@@ -134,17 +134,6 @@ function isValidDate(value: string) {
   );
 }
 
-/** Reads the tag cell: one tag, or several separated by ; | , or a new line. Spelling and spacing differences are forgiven. */
-function parseTags(cell: string): { tags: string[]; unknown?: string } {
-  const tags: string[] = [];
-  for (const part of splitTagCell(cell)) {
-    const match = matchTag(part);
-    if (!match) return { tags: [], unknown: part };
-    if (!tags.includes(match)) tags.push(match);
-  }
-  return { tags };
-}
-
 async function planUpdate(
   supabase: NonNullable<Awaited<ReturnType<typeof requireActionAuth>>["supabase"]>,
   rows: ContactUpdateRow[],
@@ -186,8 +175,9 @@ async function planUpdate(
     invalidRows: [],
     notFoundRows: [],
   };
-  const items = new Map<string, UpdateItem>();
-  const seen = new Set<string>();
+  // One entry per matched contact. A phone repeated in the file adds to the same entry:
+  // its tags are merged, and for other fields a later row's value wins.
+  const pending = new Map<string, { contact: ExistingContact; item: UpdateItem; fileTags: string[] }>();
   const countField = (field: string) => {
     preview.fieldCounts[field] = (preview.fieldCounts[field] ?? 0) + 1;
   };
@@ -210,7 +200,7 @@ async function planUpdate(
     const dateSaved = row.dateSaved?.trim() || undefined;
     if (email && !EMAIL_REGEX.test(email)) return invalid(`Email "${row.email}" is not valid.`);
     if (dateSaved && !isValidDate(dateSaved)) return invalid(`Date "${row.dateSaved}" must be YYYY-MM-DD.`);
-    const parsedTags = row.tag?.trim() ? parseTags(row.tag) : { tags: [] as string[] };
+    const parsedTags = row.tag?.trim() ? parseTagCell(row.tag) : { tags: [] as string[] };
     if (parsedTags.unknown) return invalid(`Unknown tag "${parsedTags.unknown}".`);
 
     const contact = byPhone.get(phoneKey);
@@ -220,41 +210,54 @@ async function planUpdate(
       if (preview.notFoundRows.length < 5000) preview.notFoundRows.push({ row: rowNumber, phone: String(row.phone ?? "") });
       return;
     }
-    if (seen.has(contact.id)) preview.duplicatesInFile++;
-    seen.add(contact.id);
+    let entry = pending.get(contact.id);
+    if (entry) {
+      preview.duplicatesInFile++;
+    } else {
+      entry = { contact, item: { id: contact.id }, fileTags: [] };
+      pending.set(contact.id, entry);
+    }
 
     // Only fields present in the file are considered, and only if they differ.
-    const item: UpdateItem = { id: contact.id };
+    const { item } = entry;
+    if (name !== undefined && name !== contact.name) item.name = name;
+    if (email !== undefined && email !== (contact.email ?? "").toLowerCase()) item.email = email;
+    if (company !== undefined && company !== (contact.company ?? "")) item.company = company;
+    if (notes !== undefined && notes !== (contact.notes ?? "")) item.notes = notes;
+    if (dateSaved !== undefined && dateSaved !== (contact.date_saved ?? "").slice(0, 10)) item.date_saved = dateSaved;
+    for (const tag of parsedTags.tags) {
+      if (!entry.fileTags.includes(tag)) entry.fileTags.push(tag);
+    }
+  });
+
+  const items: UpdateItem[] = [];
+  for (const { contact, item, fileTags } of pending.values()) {
     const changes: string[] = [];
-    if (name !== undefined && name !== contact.name) {
-      item.name = name;
-      changes.push(`Name: ${contact.name} → ${name}`);
+    if (item.name !== undefined) {
+      changes.push(`Name: ${contact.name} → ${item.name}`);
       countField("Name");
     }
-    if (email !== undefined && email !== (contact.email ?? "").toLowerCase()) {
-      item.email = email;
-      changes.push(`Email: ${contact.email || "(empty)"} → ${email}`);
+    if (item.email !== undefined) {
+      changes.push(`Email: ${contact.email || "(empty)"} → ${item.email}`);
       countField("Email");
     }
-    if (company !== undefined && company !== (contact.company ?? "")) {
-      item.company = company;
-      changes.push(`Company: ${contact.company || "(empty)"} → ${company}`);
+    if (item.company !== undefined) {
+      changes.push(`Company: ${contact.company || "(empty)"} → ${item.company}`);
       countField("Company");
     }
-    if (notes !== undefined && notes !== (contact.notes ?? "")) {
-      item.notes = notes;
+    if (item.notes !== undefined) {
       changes.push("Notes updated");
       countField("Notes");
     }
-    if (dateSaved !== undefined && dateSaved !== (contact.date_saved ?? "").slice(0, 10)) {
-      item.date_saved = dateSaved;
-      changes.push(`Date saved: ${contact.date_saved || "(empty)"} → ${dateSaved}`);
+    if (item.date_saved !== undefined) {
+      changes.push(`Date saved: ${contact.date_saved || "(empty)"} → ${item.date_saved}`);
       countField("Date saved");
     }
-    if (parsedTags.tags.length > 0) {
+    if (fileTags.length > 0) {
       const current = contact.tags ?? [];
-      const next =
-        tagMode === "replace" ? parsedTags.tags : [...current, ...parsedTags.tags.filter((tag) => !current.includes(tag))];
+      // Replacing still keeps investor and shareholder tags, so nobody drops off the Investors page.
+      const base = tagMode === "replace" ? current.filter((tag) => PROTECTED_TAGS.includes(tag)) : current;
+      const next = [...base, ...fileTags.filter((tag) => !base.includes(tag))];
       const same = next.length === current.length && next.every((tag) => current.includes(tag));
       if (!same) {
         item.tags = next;
@@ -263,20 +266,17 @@ async function planUpdate(
       }
     }
 
-    const previous = items.get(contact.id);
-    if (changes.length === 0 && !previous) {
+    if (changes.length === 0) {
       preview.unchanged++;
-      return;
+      continue;
     }
-    items.set(contact.id, { ...previous, ...item });
-    if (!previous) {
-      preview.willChange++;
-      if (preview.samples.length < 8) preview.samples.push({ name: contact.name, phone: contact.phone, changes });
-    }
-  });
+    items.push(item);
+    preview.willChange++;
+    if (preview.samples.length < 8) preview.samples.push({ name: contact.name, phone: contact.phone, changes });
+  }
   preview.matched = preview.willChange + preview.unchanged;
 
-  return { preview, items: [...items.values()] };
+  return { preview, items };
 }
 
 /** Shows what an update from a file would change, without changing anything. */

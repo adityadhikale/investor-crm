@@ -99,3 +99,14 @@ export function splitTagCell(cell: string): string[] {
     .map((part) => part.trim())
     .filter(Boolean);
 }
+
+/** Reads a tag cell: one tag, or several separated by ; | , or a new line. `unknown` is the first part that matches no CRM tag. */
+export function parseTagCell(cell: string): { tags: string[]; unknown?: string } {
+  const tags: string[] = [];
+  for (const part of splitTagCell(cell)) {
+    const match = matchTag(part);
+    if (!match) return { tags: [], unknown: part };
+    if (!tags.includes(match)) tags.push(match);
+  }
+  return { tags };
+}

@@ -19,7 +19,7 @@ import {
   mediaUrlForPath,
 } from "@/lib/supabase-storage";
 import { TAG_OPTIONS } from "@/lib/tags";
-import { matchTag } from "@/lib/tag-match";
+import { parseTagCell } from "@/lib/tag-match";
 import { parseExcelBuffer, type ParsedSpreadsheet } from "@/lib/parse-spreadsheet";
 import { fetchAllPages } from "@/lib/supabase-pagination";
 import { linkUnmatchedMessages } from "@/lib/link-messages";
@@ -1017,8 +1017,9 @@ function validateImportRow(row: ImportContactRow) {
     return "Date Saved must use a valid YYYY-MM-DD date.";
   }
 
-  if (row.tag && !matchTag(row.tag)) {
-    return `Unknown tag "${row.tag}".`;
+  const unknownTag = row.tag ? parseTagCell(row.tag).unknown : undefined;
+  if (unknownTag) {
+    return `Unknown tag "${unknownTag}".`;
   }
 
   return null;
@@ -1036,6 +1037,8 @@ export type ImportContactsResult =
       success: true;
       imported: number;
       duplicates: number;
+      /** Rows skipped because the phone is already a contact (these can be updated instead). */
+      existing: number;
       rejected: number;
       duplicateRows: ImportDuplicateRow[];
     }
@@ -1091,14 +1094,17 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
   }
 
   const existingPhones = new Set(existingPhonesList.map((phone) => normalizePhone(phone)));
-  const seenPhones = new Map<string, string>();
-  const rowsToInsert: ImportContactRow[] = [];
+  // The first row for each new phone, with the tags of any later rows for that phone merged in.
+  const seenPhones = new Map<string, { name: string; tags: string[] }>();
+  const rowsToInsert: Array<ImportContactRow & { tags: string[] }> = [];
   const duplicateRows: ImportDuplicateRow[] = [];
+  let existing = 0;
 
   for (const row of validRows) {
     const normalizedPhone = normalizePhone(row.phone);
 
     if (existingPhones.has(normalizedPhone)) {
+      existing++;
       duplicateRows.push({
         name: row.name,
         phone: row.phone,
@@ -1108,19 +1114,24 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
       continue;
     }
 
-    const firstSeenName = seenPhones.get(normalizedPhone);
-    if (firstSeenName) {
+    const rowTags = row.tag ? parseTagCell(row.tag).tags : [];
+    const firstSeen = seenPhones.get(normalizedPhone);
+    if (firstSeen) {
+      for (const tag of rowTags) {
+        if (!firstSeen.tags.includes(tag)) firstSeen.tags.push(tag);
+      }
       duplicateRows.push({
         name: row.name,
         phone: row.phone,
         email: row.email ?? null,
-        reason: `Duplicate phone number within this file (same as "${firstSeenName}")`,
+        reason: `Duplicate phone number within this file (same as "${firstSeen.name}"; tags combined)`,
       });
       continue;
     }
 
-    seenPhones.set(normalizedPhone, row.name);
-    rowsToInsert.push(row);
+    const pendingRow = { ...row, tags: rowTags };
+    seenPhones.set(normalizedPhone, { name: row.name, tags: pendingRow.tags });
+    rowsToInsert.push(pendingRow);
   }
 
   for (let i = 0; i < rowsToInsert.length; i += IMPORT_INSERT_BATCH_SIZE) {
@@ -1129,7 +1140,7 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
       phone: normalizePhone(row.phone),
       email: row.email ? row.email.toLowerCase() : null,
       company: row.company || null,
-      tags: row.tag ? [matchTag(row.tag) ?? row.tag] : [],
+      tags: row.tags,
       date_saved: row.dateSaved || null,
       notes: row.notes || null,
     }));
@@ -1156,6 +1167,7 @@ export async function importContacts(rowsRaw: string): Promise<ImportContactsRes
     success: true,
     imported: rowsToInsert.length,
     duplicates: duplicateRows.length,
+    existing,
     rejected,
     duplicateRows,
   };
