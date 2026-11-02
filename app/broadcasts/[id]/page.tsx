@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireAuthFast } from "@/lib/auth";
+import { fetchAllPages } from "@/lib/supabase-pagination";
 import { BroadcastEditor } from "@/components/broadcast-editor";
 import {
   BroadcastDeliveryResultsPanel,
@@ -43,11 +44,16 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
       .from("groups")
       .select("id, name")
       .order("name", { ascending: true }),
-    supabase
-      .from("contacts")
-      .select("id, name, phone")
-      .is("deleted_at", null)
-      .order("name", { ascending: true }),
+    // Supabase returns at most 1000 rows per request, so page through to get every contact.
+    fetchAllPages<ContactOption>((from, to) =>
+      supabase
+        .from("contacts")
+        .select("id, name, phone")
+        .is("deleted_at", null)
+        .order("name", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    ),
     supabase
       .from("templates")
       .select("id, name, category, body_text, variables, approved_at, meta_template_id")
@@ -61,7 +67,7 @@ export default async function BroadcastDetailPage({ params }: PageProps) {
 
   const broadcast = broadcastResult.data as BroadcastData;
   const groups = (groupsResult.data ?? []) as GroupOption[];
-  const contacts = (contactsResult.data ?? []) as ContactOption[];
+  const contacts = contactsResult;
   const templates = (templatesResult.data ?? []) as TemplateOption[];
 
   const isSent = broadcast.status === "sent";
