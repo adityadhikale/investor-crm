@@ -1310,6 +1310,32 @@ export function BroadcastEditor({
                 )
               )}
             </p>
+
+            {targetType === "manual" && selectedContactIds.length > 0 && (
+              <ul className="mt-3 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto" aria-label="Selected contacts">
+                {contacts
+                  .filter((contact) => selectedContactIds.includes(contact.id))
+                  .map((contact) => (
+                    <li
+                      key={contact.id}
+                      className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background py-1 pl-2.5 pr-1.5 text-xs"
+                    >
+                      <span className="truncate font-medium text-foreground">{contact.name}</span>
+                      <span className="shrink-0 text-muted-foreground">{contact.phone}</span>
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => handleContactToggle(contact.id)}
+                          aria-label={`Remove ${contact.name}`}
+                          className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         </div>
       </section>
