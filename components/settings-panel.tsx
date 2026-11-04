@@ -232,8 +232,8 @@ export function SettingsPanel({
             <div className="min-w-0">
               <p className="text-sm font-medium">Full backup (JSON)</p>
               <p className="text-xs text-muted-foreground">
-                Every table: contacts, groups, notes, follow-ups, templates, broadcasts and
-                WhatsApp messages.
+                Every table: contacts, groups, notes, follow-ups, templates, broadcasts,
+                WhatsApp messages and portfolio updates.
               </p>
             </div>
             <Button

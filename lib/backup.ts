@@ -13,6 +13,7 @@ const BACKUP_TABLES: Array<{ table: string; orderBy: string[]; optional?: boolea
   { table: "broadcasts", orderBy: ["id"] },
   { table: "broadcast_recipients", orderBy: ["id"], optional: true },
   { table: "whatsapp_messages", orderBy: ["id"] },
+  { table: "portfolio_updates", orderBy: ["id"] },
   { table: "app_settings", orderBy: ["id"], optional: true },
 ];
 
